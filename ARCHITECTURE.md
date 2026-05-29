@@ -1,250 +1,256 @@
 # ARCHITECTURE.md — IISc Grounded Agentic RAG Platform
 
-## System Overview
+> Two-path retrieval. Agentic loop in n8n. Multi-tenant. Cited answers only.
 
-```
-                 ┌───────────────────────────────────────────────┐
-                 │            FRONTEND  ·  Next.js 14             │
-                 │  /admin (M8)  │  /chat (M9)  │  /onboarding (M13) │
-                 └──────┬────────┴──────┬────────┴──────┬──────────┘
-                        │ JWT token      │               │
-                 ┌──────▼────────────────▼───────────────▼──────────┐
-                 │          FASTAPI GATEWAY  ·  Python 3.11          │
-                 │  /auth  /admin  /chat  /webhooks  /onboarding     │
-                 │  JWT middleware · CORS · rate limiting · logging   │
-                 └───────┬──────────────┬───────────────┬────────────┘
-                         │              │               │
-              ┌──────────▼──┐    ┌──────▼─────┐  ┌────▼──────────────┐
-              │ PostgreSQL  │    │  Redis 7   │  │   n8n  (port 5678) │
-              │ + pgvector  │    │  sessions  │  │   RAG Engine       │
-              │  port 5432  │    │  port 6379 │  │   Ingestion WF     │
-              └──────────┬──┘    └────────────┘  │   Retrieval WF     │
-                         │                        └────────┬───────────┘
-                         │                                 │
-                         └─────── shared DB ───────────────┘
-                                                           │
-                                               ┌───────────▼──────────┐
-                                               │    OpenAI  API        │
-                                               │  /embeddings          │
-                                               │  /chat/completions    │
-                                               └──────────────────────┘
+---
 
-  External Channels:
-  ┌──────────────┐     ┌─────────────┐
-  │  WhatsApp    │     │  Slack Bot  │
-  │  (Twilio)    │     │  Events API │
-  └──────┬───────┘     └──────┬──────┘
-         │ POST /webhooks      │ POST /webhooks
-         └─────────────────────┘
-               ↓ FastAPI webhooks.py
-               ↓ calls n8n retrieval webhook
-               ↓ returns answer → TwiML / Slack reply
-```
+## 1. High-Level System
 
-## Component Descriptions
+```mermaid
+flowchart LR
+    subgraph Clients
+        Web["Web UI<br/>Next.js 14"]
+        WA["WhatsApp<br/>Twilio Sandbox"]
+        MCP["MCP Clients<br/>Claude Desktop / Cursor"]
+    end
 
-### FastAPI Gateway (backend/)
-- **Responsibility**: Auth, routing, file storage, webhook receipt, DB CRUD
-- **Does NOT**: embed text, call LLMs, chunk documents
-- **Key files**: `app/main.py`, `app/api/`, `app/core/`, `app/models/`
-- **Port**: 8000
+    subgraph Edge["Gateway · Railway"]
+        API["FastAPI<br/>(thin gateway)"]
+        MCPSrv["/mcp/* JSON-RPC"]
+    end
 
-### n8n RAG Engine (n8n-workflows/)
-- **Responsibility**: All AI logic — parse, chunk, embed, store, retrieve, generate
-- **Ingestion workflow**: Triggered by FastAPI via HTTP POST when file is uploaded
-- **Retrieval workflow**: Triggered by FastAPI via HTTP POST when user sends a query
-- **Port**: 5678 (n8n UI), webhook URL: `http://n8n:5678/webhook/...`
+    subgraph RAG["n8n · RAG Engine"]
+        Ingest["Ingestion WF<br/>parse + OCR + chunk + embed"]
+        Retrieve["Agentic Retrieval WF<br/>plan → tools → self-check"]
+        Ephemeral["Ephemeral Ingest WF<br/>1-hour TTL"]
+    end
 
-### PostgreSQL + pgvector (database/)
-- **Tables**: `tenants`, `users`, `documents`, `document_chunks`, `conversations`, `chat_messages`
-- **pgvector**: `document_chunks.embedding vector(1536)` — cosine similarity search
-- **Tenant isolation**: every table has `tenant_id UUID` — ALL queries filter by it
+    subgraph Data["Neon Postgres + pgvector"]
+        DocChunks[("document_chunks<br/>vector(1024)")]
+        EphChunks[("ephemeral_chunks<br/>vector(1024) TTL=1h")]
+        Meta[("tenants · users · documents<br/>conversations · messages")]
+    end
 
-### Redis (cache)
-- JWT token blacklist
-- Session cache
-- Rate limiting counters
+    subgraph Providers["AI Providers"]
+        Voyage["Voyage<br/>embed + rerank"]
+        DSFlash["DeepSeek V4 Flash<br/>(primary gen)"]
+        DSPro["DeepSeek V4 Pro<br/>(hard fallback)"]
+        Gemini["Gemini 3.5 Flash<br/>(self-check)"]
+        OAI["OpenAI gpt-4o-mini<br/>(vision OCR + insurance)"]
+    end
 
-### Next.js Frontend (frontend/)
-- **Admin portal** (`/admin`): login, upload docs, manage users, tenant settings
-- **Chat portal** (`/chat`): query knowledge base, view citations, conversation history
-- **Onboarding wizard** (`/onboarding`): new tenant registration flow
+    Web -->|JWT| API
+    WA  -->|webhook| API
+    MCP -->|JSON-RPC| MCPSrv
+    MCPSrv --> API
+    API   -->|POST /webhook/retrieve| Retrieve
+    API   -->|POST /webhook/ingest| Ingest
+    API   -->|POST /webhook/ingest-ephemeral| Ephemeral
 
-## Data Flow — Document Ingestion
-
-```
-User (admin) uploads PDF via Admin UI
-  → POST /admin/documents/upload (FastAPI, M3)
-  → File saved to /uploads volume
-  → FastAPI POSTs to n8n ingestion webhook with {file_path, tenant_id, document_id}
-  → n8n Ingestion Workflow (M5):
-      1. Read file (pypdf / python-docx / requests)
-      2. Extract text
-      3. Chunk text (512 tokens, 50-token overlap)
-      4. For each chunk: POST /embeddings → OpenAI → get vector
-      5. INSERT INTO document_chunks (tenant_id, document_id, content, embedding, ...)
-      6. POST /webhooks/n8n/ingestion-status → FastAPI (status: completed)
-  → FastAPI updates documents.status = "completed"
-  → Admin UI shows ✅ green badge
+    Ingest    --> Voyage
+    Ingest    --> OAI
+    Ingest    --> DocChunks
+    Ephemeral --> Voyage
+    Ephemeral --> EphChunks
+    Retrieve  --> Voyage
+    Retrieve  --> DocChunks
+    Retrieve  --> EphChunks
+    Retrieve  --> DSFlash
+    Retrieve  --> Gemini
+    Retrieve  --> DSPro
+    API --> Meta
 ```
 
-## Data Flow — User Query
+**Principle**: FastAPI is a thin gateway. **All** AI logic (embed, retrieve, rerank, generate, self-check) lives inside n8n.
 
-```
-User types question in Chat UI
-  → POST /chat/query {query, conversation_id, tenant_id} (FastAPI, M3)
-  → FastAPI POSTs to n8n retrieval webhook
-  → n8n Retrieval Workflow (M6):
-      1. POST /embeddings → OpenAI → embed the query
-      2. SELECT ... FROM document_chunks WHERE tenant_id=X
-         ORDER BY embedding <=> $query_vec LIMIT 5
-      3. Assemble context: top-5 chunks + conversation history
-      4. POST /chat/completions → OpenAI GPT with system prompt + context
-      5. Extract answer + map citations to source chunks
-      6. Generate 3 follow-up questions
-      7. Return N8nRetrieveResponse
-  → FastAPI saves messages to chat_messages table
-  → Chat UI renders answer + collapsible citations + follow-up chips
-```
+---
 
-## Data Flow — WhatsApp Query
+## 2. Two Upload Paths
 
-```
-User sends WhatsApp message
-  → Twilio POSTs to POST /webhooks/whatsapp (FastAPI, M4)
-  → FastAPI validates Twilio signature
-  → Lookup phone_number → tenant_id (tenant_map table, M12)
-  → FastAPI calls n8n retrieval webhook (same as web chat)
-  → Returns answer → FastAPI responds with TwiML
-  → Twilio delivers reply to user's WhatsApp
+```mermaid
+flowchart TB
+    subgraph Admin["Admin Persistent Upload"]
+        A1[Admin uploads PDF<br/>≤ 25 MB] --> A2[POST /admin/documents/upload]
+        A2 --> A3[FastAPI: validate MIME + magic bytes<br/>+ tenant quota check]
+        A3 --> A4[Save to /uploads]
+        A4 --> A5[Trigger n8n /webhook/ingest]
+        A5 --> A6[Chunks land in<br/>document_chunks]
+        A6 --> A7[Available to ALL users<br/>in tenant FOREVER]
+    end
+
+    subgraph Chat["WhatsApp Ephemeral Upload (Pattern A)"]
+        B1[User sends PDF in WhatsApp<br/>≤ 10 MB] --> B2[Twilio webhook → FastAPI]
+        B2 --> B3[Validate + save to /tmp]
+        B3 --> B4[Trigger n8n /webhook/ingest-ephemeral]
+        B4 --> B5[Chunks land in<br/>ephemeral_chunks<br/>expires_at = NOW + 1h]
+        B5 --> B6[Scoped to ONE conversation<br/>auto-purged hourly cron]
+    end
 ```
 
-## Database Schema
+| Aspect              | Admin Upload                 | WhatsApp Upload                   |
+| ------------------- | ---------------------------- | --------------------------------- |
+| Max size            | 25 MB                        | 10 MB                             |
+| Persistence         | Forever (`document_chunks`)  | 1 hour (`ephemeral_chunks`)       |
+| Scope               | All users in tenant          | Single conversation only          |
+| Cleanup             | Manual delete via UI         | Hourly cron: `cleanup_ephemeral.py` |
+| Counts toward quota | Yes (1 GB/tenant)            | No                                |
 
-```sql
--- Tenants (each customer company)
-CREATE TABLE tenants (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name VARCHAR(255) NOT NULL,
-  slug VARCHAR(100) UNIQUE NOT NULL,
-  plan VARCHAR(50) DEFAULT 'free',
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+---
 
--- Users
-CREATE TABLE users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  hashed_password VARCHAR(255) NOT NULL,
-  role VARCHAR(50) DEFAULT 'user',   -- 'super_admin' | 'admin' | 'user'
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+## 3. Agentic Retrieval Loop (n8n)
 
--- Documents uploaded by admins
-CREATE TABLE documents (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
-  uploaded_by UUID REFERENCES users(id),
-  title VARCHAR(500) NOT NULL,
-  source_type VARCHAR(50) NOT NULL,   -- 'pdf' | 'docx' | 'txt' | 'url'
-  source_url TEXT,
-  file_path TEXT,
-  status VARCHAR(50) DEFAULT 'pending',   -- 'pending'|'processing'|'completed'|'failed'
-  chunk_count INTEGER DEFAULT 0,
-  error_message TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Vector chunks (the RAG store)
-CREATE TABLE document_chunks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
-  document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  embedding vector(1536),             -- pgvector — text-embedding-3-small
-  chunk_index INTEGER NOT NULL,
-  page_number INTEGER,
-  token_count INTEGER,
-  metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX ON document_chunks USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX ON document_chunks (tenant_id);
-
--- Conversations
-CREATE TABLE conversations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id),
-  title VARCHAR(500),
-  channel VARCHAR(50) DEFAULT 'web',   -- 'web' | 'whatsapp' | 'slack'
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Chat messages
-CREATE TABLE chat_messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
-  role VARCHAR(20) NOT NULL,   -- 'user' | 'assistant'
-  content TEXT NOT NULL,
-  sources JSONB DEFAULT '[]',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- WhatsApp phone → tenant mapping
-CREATE TABLE whatsapp_tenant_map (
-  phone_number VARCHAR(20) PRIMARY KEY,
-  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+```mermaid
+flowchart TB
+    Q[User query] --> Planner[AI Agent node<br/>DeepSeek V4 Flash]
+    Planner --> Tools{Pick tool}
+    Tools -->|search KB| T1[search_knowledge_base<br/>Voyage embed + pgvector + Voyage rerank]
+    Tools -->|search uploaded| T2[search_ephemeral<br/>same flow on ephemeral_chunks]
+    Tools -->|need clarification| T3[ask_clarifying_question<br/>return early]
+    Tools -->|web context| T4[web_lookup<br/>optional, opt-in per tenant]
+    T1 --> Synth[Synthesize answer<br/>DeepSeek V4 Flash]
+    T2 --> Synth
+    T4 --> Synth
+    Synth --> Check[Self-check<br/>Gemini 3.5 Flash]
+    Check -->|faithfulness ≥ 0.7| Out[Return answer + citations]
+    Check -->|< 0.7| Retry[Retry with DeepSeek V4 Pro]
+    Retry --> Out
+    T3 --> Out
 ```
 
-## n8n Webhook Contracts
+**Faithfulness score** is returned with every answer and stored on `chat_messages.faithfulness`. The UI shades the badge red/yellow/green.
 
-### Ingestion Webhook
+---
+
+## 4. Component Map
+
+### FastAPI Gateway (`backend/`)
+- **Does**: auth (JWT), file upload validation, webhook receipt, DB CRUD, MCP server, rate-limit (slowapi, in-process)
+- **Does NOT**: call LLMs, embed text, chunk documents
+- **Key files**: `app/main.py`, `app/api/`, `app/services/file_validator.py`, `app/mcp/`
+
+### n8n RAG Engine (`n8n-workflows/`)
+- **Ingestion** (`ingestion-pipeline.json`) — parse → OCR (scanned PDFs via gpt-4o vision) → chunk → Voyage embed → INSERT into `document_chunks`
+- **Agentic retrieval** (`retrieval-pipeline.json`) — AI Agent node with 4 tools, Voyage rerank, Gemini self-check
+- **Ephemeral ingest** (`ingest-ephemeral.json`) — same as ingestion but writes to `ephemeral_chunks` with TTL
+
+### Neon Postgres + pgvector
+- 1024-dim vectors (Voyage `voyage-4-large`)
+- HNSW index on both vector tables (m=16, ef_construction=64)
+- Every query is `WHERE tenant_id = :tenant_id` — enforced by `get_current_tenant()`
+
+### MCP Server (`backend/app/mcp/`)
+- `GET /mcp/info` — server discovery (no auth)
+- `POST /mcp/rpc` — JSON-RPC (`tools/list`, `tools/call`)
+- Auth: `X-MCP-API-Key` header
+- Tools: `query_knowledge_base`, `list_documents`
+
+### Channels
+- **Web** — Next.js admin + chat UI (Vercel)
+- **WhatsApp** — Twilio Sandbox; phone → tenant via `whatsapp_tenant_map`
+- **MCP** — Claude Desktop / Cursor (see `docs/DEMO.md` for config)
+- **Slack** — stretch goal
+
+---
+
+## 5. Hosting Targets
+
+| Layer            | Provider              | Cost                            |
+| ---------------- | --------------------- | ------------------------------- |
+| Frontend         | Vercel (Hobby)        | Free                            |
+| Backend + n8n    | Railway               | ~$5/mo (single project)         |
+| Postgres+pgvector| Neon                  | Free (10 GB storage)            |
+| Embeddings       | Voyage                | Free (200M tokens)              |
+| Rerank           | Voyage                | Free (200M tokens)              |
+| Generation       | DeepSeek V4 Flash     | ~$0 (cheap pay-as-you-go)       |
+| Self-check       | Gemini 3.5 Flash      | Free tier                       |
+| Hard fallback    | DeepSeek V4 Pro       | ~$5 one-time (promo by 31 May)  |
+| Insurance        | OpenAI                | $5 prepaid (hard cap $10)       |
+| **Total**        |                       | **~$10 one-time + ~$5/mo**      |
+
+No Redis. JWT is stateless; rate-limit is in-process slowapi.
+
+---
+
+## 6. Webhook Contracts
+
+### POST `/webhook/ingest` (FastAPI → n8n)
 ```json
-POST http://n8n:5678/webhook/ingest
 {
   "document_id": "uuid",
   "tenant_id": "uuid",
   "file_path": "/uploads/filename.pdf",
   "source_type": "pdf",
-  "title": "Document title"
+  "title": "Document title",
+  "callback_token": "<settings.N8N_CALLBACK_TOKEN>"
 }
 ```
 
-### Retrieval Webhook
+### POST `/webhook/ingest-ephemeral` (FastAPI → n8n)
 ```json
-POST http://n8n:5678/webhook/retrieve
+{
+  "conversation_id": "uuid",
+  "tenant_id": "uuid",
+  "file_path": "/tmp/whatsapp-xxx.pdf",
+  "source_name": "user-upload.pdf",
+  "ttl_seconds": 3600
+}
+```
+
+### POST `/webhook/retrieve` (FastAPI → n8n)
+```json
 {
   "query": "How do I reset the device?",
   "tenant_id": "uuid",
-  "conversation_history": [
-    {"role": "user", "content": "..."},
-    {"role": "assistant", "content": "..."}
-  ],
-  "max_chunks": 5
+  "conversation_id": "uuid",
+  "conversation_history": [...],
+  "max_chunks": 5,
+  "include_ephemeral": true
 }
 ```
 Response:
 ```json
 {
-  "answer": "To reset the device...",
-  "sources": [
-    {"document_id": "uuid", "title": "Manual", "chunk_text": "...", "page_number": 12, "score": 0.94}
-  ],
-  "follow_up_questions": ["What if reset fails?", "Where is the reset button?"],
-  "metadata": {"model": "gpt-4o-mini", "retrieval_time_ms": 1200, "chunks_retrieved": 5}
+  "answer": "To reset the device... [Manual, p.12]",
+  "sources": [{"document_id": "uuid", "title": "Manual", "chunk_text": "...", "page_number": 12, "score": 0.94}],
+  "follow_up_questions": ["...", "...", "..."],
+  "faithfulness": 0.92,
+  "requires_clarification": false,
+  "metadata": {"model": "deepseek-v4-flash", "retrieval_time_ms": 1100, "chunks_retrieved": 5}
 }
 ```
 
-## Security Considerations
-- JWT tokens expire in 24h; refresh tokens in Redis (blacklist on logout)
-- All DB queries include `WHERE tenant_id = :tenant_id` — enforced by `get_current_tenant()` dependency
-- Twilio webhook signature validated with `TWILIO_AUTH_TOKEN`
-- Slack request verified with HMAC-SHA256
-- File uploads: validate MIME type, max 50MB, store outside web root
-- OpenAI API key never sent to frontend
+### POST `/webhooks/n8n/ingestion-status` (n8n → FastAPI)
+```json
+{
+  "document_id": "uuid",
+  "status": "completed" | "failed",
+  "chunk_count": 42,
+  "error_message": null,
+  "callback_token": "<settings.N8N_CALLBACK_TOKEN>"
+}
+```
+
+---
+
+## 7. Security
+
+- JWT (stateless, 24h expiry). No Redis blacklist.
+- File uploads: size cap + MIME allowlist + **magic-byte verification** (defense-in-depth) in `services/file_validator.py`.
+- Per-tenant 1 GB storage cap (enforced in upload handler).
+- 20 uploads/hour/tenant (`slowapi` rate limit).
+- Twilio signature validated on every WhatsApp webhook.
+- n8n callbacks authenticated via shared `N8N_CALLBACK_TOKEN`.
+- MCP RPC: `X-MCP-API-Key` header required in production.
+- Every DB query filters by `tenant_id` — enforced by SQLAlchemy dependency.
+- OpenAI hard cap $10 (rejects new requests if cost exceeds).
+
+---
+
+## 8. Diagram Sources
+
+Editable diagram sources for the team live in [docs/diagrams/](docs/diagrams/):
+- `system-overview.excalidraw` — hand-drawn high-level system
+- `agentic-loop.excalidraw` — retrieval agent loop
+- `two-upload-paths.excalidraw` — admin vs WhatsApp upload paths
+
+Open with the **Excalidraw VS Code extension** (already installed). Mermaid diagrams above render natively on GitHub — keep them in sync if you change Excalidraw sources.

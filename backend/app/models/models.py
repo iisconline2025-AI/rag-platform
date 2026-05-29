@@ -1,7 +1,9 @@
 """SQLAlchemy ORM models — all tables defined here."""
 import uuid
-from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, ForeignKey, JSON
+from datetime import datetime, timedelta
+from sqlalchemy import (
+    Column, String, Boolean, DateTime, Integer, Numeric, Text, ForeignKey, JSON, BigInteger,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -72,9 +74,39 @@ class ChatMessage(Base):
     role = Column(String(20), nullable=False)  # user | assistant
     content = Column(Text, nullable=False)
     sources = Column(JSON, default=list)
+    faithfulness = Column(Numeric(3, 2), nullable=True)              # 0.00–1.00 self-check
+    requires_clarification = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
+
+
+class EphemeralChunk(Base):
+    """Chunks for user-uploaded files (WhatsApp / chat). 1-hour TTL.
+
+    NOT mixed with the tenant knowledge base. Cron job purges by expires_at.
+    """
+    __tablename__ = "ephemeral_chunks"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    conversation_id = Column(UUID(as_uuid=True), nullable=False)
+    content = Column(Text, nullable=False)
+    # embedding column is vector(1024) — managed by raw SQL / init.sql; not mapped via ORM.
+    chunk_index = Column(Integer, nullable=False)
+    source_name = Column(String(500), nullable=True)
+    extra_metadata = Column("metadata", JSON, default=dict)
+    expires_at = Column(DateTime, nullable=False,
+                        default=lambda: datetime.utcnow() + timedelta(hours=1))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class UploadAudit(Base):
+    """Per-tenant upload audit log (for hourly quota enforcement)."""
+    __tablename__ = "upload_audit"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id = Column(UUID(as_uuid=True), nullable=False)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    bytes = Column(BigInteger, default=0)
 
 
 class WhatsAppTenantMap(Base):

@@ -1,0 +1,38 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "iisc-rag-platform",
+  "elements": [
+    {
+      "id": "title",
+      "type": "text",
+      "x": 100,
+      "y": 80,
+      "width": 700,
+      "height": 40,
+      "text": "Two Upload Paths — Persistent vs Ephemeral",
+      "fontSize": 28,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent"
+    },
+    {
+      "id": "todo",
+      "type": "text",
+      "x": 100,
+      "y": 150,
+      "width": 900,
+      "height": 280,
+      "text": "Open with the Excalidraw VS Code extension and draw the two parallel pipelines from ARCHITECTURE.md §2.\n\nLEFT — Admin persistent upload:\n  Admin → /admin/documents/upload → validate (MIME + magic bytes + quota)\n    → save to /uploads → n8n /webhook/ingest → document_chunks (forever)\n\nRIGHT — WhatsApp ephemeral upload (Pattern A):\n  User WhatsApp PDF → Twilio webhook → /webhooks/whatsapp\n    → validate (10 MB) → /tmp → n8n /webhook/ingest-ephemeral\n    → ephemeral_chunks(expires_at = NOW + 1h)\n    → hourly cron purges expired rows\n\nHighlight:\n  • size caps (25 MB vs 10 MB)\n  • scope (tenant-wide vs conversation-only)\n  • retention (forever vs 1 hour)",
+      "fontSize": 16,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent"
+    }
+  ],
+  "appState": {
+    "gridSize": 20,
+    "viewBackgroundColor": "#ffffff"
+  },
+  "files": {}
+}

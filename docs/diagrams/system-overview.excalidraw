@@ -1,0 +1,38 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "iisc-rag-platform",
+  "elements": [
+    {
+      "id": "title",
+      "type": "text",
+      "x": 100,
+      "y": 80,
+      "width": 600,
+      "height": 40,
+      "text": "System Overview — IISc Grounded Agentic RAG Platform",
+      "fontSize": 28,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent"
+    },
+    {
+      "id": "todo",
+      "type": "text",
+      "x": 100,
+      "y": 150,
+      "width": 800,
+      "height": 200,
+      "text": "Open with the Excalidraw VS Code extension and draw the high-level system shown in ARCHITECTURE.md §1.\n\nBlocks to include:\n  • Clients (Web, WhatsApp, MCP)\n  • FastAPI Gateway (Railway)\n  • n8n RAG Engine (3 workflows)\n  • Neon Postgres + pgvector\n  • AI Providers (Voyage, DeepSeek, Gemini, OpenAI)\n\nKeep the Mermaid diagram in ARCHITECTURE.md in sync when you edit this file.",
+      "fontSize": 16,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent"
+    }
+  ],
+  "appState": {
+    "gridSize": 20,
+    "viewBackgroundColor": "#ffffff"
+  },
+  "files": {}
+}

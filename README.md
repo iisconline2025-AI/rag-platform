@@ -13,7 +13,7 @@
 ```bash
 git clone <repo-url> && cd rag-platform
 cp .env.example .env        # fill in OPENAI_API_KEY, POSTGRES_PASSWORD, etc.
-docker compose up -d        # starts postgres+pgvector, redis, n8n
+docker compose up -d        # starts postgres+pgvector, n8n
 cd backend && pip install -r requirements.txt
 alembic upgrade head        # creates all tables
 python -m app.scripts.seed_admin   # creates admin@example.com / changeme

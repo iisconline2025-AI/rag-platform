@@ -1,9 +1,82 @@
 {
-  "_comment": "PLACEHOLDER — M5 will replace this with the real exported n8n workflow JSON.",
-  "_instructions": "To create: Build the workflow in n8n UI at http://localhost:5678, then export as JSON and replace this file.",
-  "name": "RAG Ingestion Pipeline",
-  "nodes": [],
-  "connections": {},
+  "name": "Ingestion Pipeline (persistent)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ingest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-ingest",
+      "name": "Webhook /ingest",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// M5: 1) Read file at $json.file_path  2) extract text (pypdf/docx/txt)\n// 3) if scanned PDF (no text layer) → call OpenAI gpt-4o vision OCR\n// 4) Return { text, page_count, used_ocr }\nreturn [{ json: { text: 'TODO M5: extract text', page_count: 0, used_ocr: false, ...$json } }];"
+      },
+      "id": "extract",
+      "name": "Extract + OCR",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// M5: chunk into ~512-token windows, 50-token overlap.\n// Return array of {content, chunk_index, page_number, token_count}.\nreturn [{ json: { chunks: [], ...$json } }];"
+      },
+      "id": "chunk",
+      "name": "Chunk (512/50)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.voyageai.com/v1/embeddings",
+        "authentication": "headerAuth",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"model\": \"voyage-4-large\",\n  \"input\": $json.chunks.map(c => c.content),\n  \"input_type\": \"document\"\n}",
+        "options": {}
+      },
+      "id": "embed",
+      "name": "Voyage embed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// M5: bulk INSERT into document_chunks(tenant_id,document_id,content,embedding,...)\n// then POST /webhooks/n8n/ingestion-status with {document_id, status:'completed', chunk_count}.\nreturn [{ json: { status: 'TODO M5: bulk insert + callback' } }];"
+      },
+      "id": "store",
+      "name": "Store + Callback",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": { "respondWith": "json", "responseBody": "={{ $json }}" },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Webhook /ingest":   { "main": [[{ "node": "Extract + OCR",  "type": "main", "index": 0 }]] },
+    "Extract + OCR":     { "main": [[{ "node": "Chunk (512/50)", "type": "main", "index": 0 }]] },
+    "Chunk (512/50)":    { "main": [[{ "node": "Voyage embed",   "type": "main", "index": 0 }]] },
+    "Voyage embed":      { "main": [[{ "node": "Store + Callback","type": "main", "index": 0 }]] },
+    "Store + Callback":  { "main": [[{ "node": "Respond",         "type": "main", "index": 0 }]] }
+  },
   "active": false,
-  "version": 1
+  "settings": { "executionOrder": "v1" },
+  "tags": ["rag-platform", "ingestion"]
 }

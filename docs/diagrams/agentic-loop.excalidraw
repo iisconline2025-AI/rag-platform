@@ -1,0 +1,38 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "iisc-rag-platform",
+  "elements": [
+    {
+      "id": "title",
+      "type": "text",
+      "x": 100,
+      "y": 80,
+      "width": 600,
+      "height": 40,
+      "text": "Agentic Retrieval Loop (n8n)",
+      "fontSize": 28,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent"
+    },
+    {
+      "id": "todo",
+      "type": "text",
+      "x": 100,
+      "y": 150,
+      "width": 800,
+      "height": 250,
+      "text": "Open with the Excalidraw VS Code extension and draw the agentic loop shown in ARCHITECTURE.md §3.\n\nFlow:\n  1. User query\n  2. AI Agent node (DeepSeek V4 Flash)\n  3. Tool pick: search_kb / search_ephemeral / web_lookup / ask_clarifying_question\n  4. Voyage embed → pgvector kNN → Voyage rerank → top 5 chunks\n  5. Synthesize answer with DeepSeek V4 Flash\n  6. Gemini self-check → faithfulness score\n  7. IF score < 0.7 → retry with DeepSeek V4 Pro\n  8. Return answer + sources + faithfulness",
+      "fontSize": 16,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent"
+    }
+  ],
+  "appState": {
+    "gridSize": 20,
+    "viewBackgroundColor": "#ffffff"
+  },
+  "files": {}
+}

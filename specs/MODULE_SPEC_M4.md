@@ -64,3 +64,22 @@ async def n8n_ingestion_callback(payload: IngestionStatusPayload, db: AsyncSessi
 - [ ] `POST /webhooks/n8n/ingestion-status` updates document status in DB
 - [ ] Twilio signature validated (Day 5)
 - [ ] Slack request verified with HMAC-SHA256 (Day 5)
+
+---
+
+## ?? Locked Scope Update (M1 / 29-May)
+
+**MCP server**: A new `backend/app/mcp/` module exposes platform retrieval as MCP tools (`query_knowledge_base`, `list_documents`). M4 co-owns it with M3.
+- Endpoints: `GET /mcp/info`, `POST /mcp/rpc`
+- Auth: `X-MCP-API-Key` header
+- See `backend/app/mcp/server.py` + `tools.py` for scaffolds committed by M1.
+- Demo: Claude Desktop config in `docs/DEMO.md`.
+
+**WhatsApp ephemeral upload**: When Twilio webhook receives a `MediaUrl0` payload:
+1. Download media (respect `MAX_WHATSAPP_UPLOAD_BYTES = 10 MB`)
+2. Validate via `services/file_validator.py`
+3. Save to `/tmp/wa-<uuid>`
+4. POST to `N8N_EPHEMERAL_INGEST_WEBHOOK_URL` with `{conversation_id, tenant_id, file_path, source_name, ttl_seconds: 3600}`
+5. Acknowledge to user via TwiML, then process the follow-up question against ephemeral + persistent retrieval.
+
+**Slack moved to stretch**: only attempt after WhatsApp + MCP are demo-stable.

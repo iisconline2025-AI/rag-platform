@@ -83,3 +83,21 @@ async def register_phone_for_tenant(phone_number: str, tenant_id: str):
 - [ ] Conversation history included in context (test with multi-turn conversation)
 - [ ] Long answers truncated to 1600 chars for WhatsApp
 - [ ] Twilio signature validation active (Day 5)
+
+---
+
+## ?? Locked Scope Update (M1 / 29-May)
+
+**Ephemeral file uploads from WhatsApp** (Pattern A):
+- Max size: 10 MB (`MAX_WHATSAPP_UPLOAD_BYTES`)
+- Allowed MIME: PDF, DOCX, PNG, JPEG (validated in `services/file_validator.py`)
+- Chunks land in `ephemeral_chunks` with `expires_at = NOW + 1h`, scoped by `conversation_id`
+- Hourly cron `python -m scripts.cleanup_ephemeral` purges expired rows
+
+**`whatsapp_tenant_map`**:
+- Pre-seed at least 3 phone numbers ? tenant_id mappings before demo day
+- Unmapped numbers default to seed tenant `iisc-demo` with a polite onboarding nudge
+
+**Twilio signature validation**: required by Day 5 (security). Use `twilio.request_validator.RequestValidator` with `TWILIO_AUTH_TOKEN`.
+
+See ARCHITECTURE.md §2 for the two-upload-paths diagram.

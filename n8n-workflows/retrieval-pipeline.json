@@ -1,9 +1,139 @@
 {
-  "_comment": "PLACEHOLDER — M6 will replace this with the real exported n8n workflow JSON.",
-  "_instructions": "To create: Build the workflow in n8n UI at http://localhost:5678, then export as JSON and replace this file.",
-  "name": "RAG Retrieval Pipeline",
-  "nodes": [],
-  "connections": {},
+  "name": "Agentic Retrieval Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "retrieve",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-retrieve",
+      "name": "Webhook /retrieve",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "agent": "openAiFunctionsAgent",
+        "options": {
+          "systemMessage": "You are a grounded customer-onboarding assistant. ALWAYS cite sources. If unsure, call ask_clarifying_question. Available tools: search_knowledge_base, search_ephemeral, web_lookup, ask_clarifying_question."
+        },
+        "text": "={{ $json.query }}"
+      },
+      "id": "agent",
+      "name": "AI Agent (DeepSeek V4 Flash)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [440, 300],
+      "notes": "M6: configure ChatModel = DeepSeek (OpenAI-compatible) base_url=https://api.deepseek.com, model=deepseek-v4-flash. Wire 4 tool sub-nodes below."
+    },
+    {
+      "parameters": {
+        "url": "https://api.voyageai.com/v1/embeddings",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"model\": \"voyage-4-large\",\n  \"input\": [$json.query],\n  \"input_type\": \"query\"\n}"
+      },
+      "id": "embed-q",
+      "name": "Embed query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 500],
+      "notes": "Tool: search_knowledge_base step 1"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Tool: search_knowledge_base step 2 — pgvector kNN on document_chunks\n// SELECT ... WHERE tenant_id=$1 ORDER BY embedding <=> $2 LIMIT 20\nreturn [{ json: { candidates: [] } }];"
+      },
+      "id": "kb-search",
+      "name": "pgvector kNN (top 20)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [660, 500]
+    },
+    {
+      "parameters": {
+        "url": "https://api.voyageai.com/v1/rerank",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"model\": \"rerank-2.5\",\n  \"query\": $json.query,\n  \"documents\": $json.candidates.map(c => c.content),\n  \"top_k\": 5\n}"
+      },
+      "id": "rerank",
+      "name": "Voyage rerank → top 5",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 500]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"contents\": [{ \"parts\": [{ \"text\": \"Score how faithful this answer is to the sources (0-1):\\nANSWER:\\n\" + $json.answer + \"\\nSOURCES:\\n\" + JSON.stringify($json.sources) }] }]\n}"
+      },
+      "id": "selfcheck",
+      "name": "Gemini self-check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            { "value1": "={{ $json.faithfulness }}", "operation": "smaller", "value2": 0.7 }
+          ]
+        }
+      },
+      "id": "if-low",
+      "name": "IF faithfulness < 0.7",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.deepseek.com/v1/chat/completions",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"model\": \"deepseek-v4-pro\",\n  \"messages\": [{ \"role\": \"user\", \"content\": $json.query + \"\\nGrounded only in:\\n\" + JSON.stringify($json.sources) }]\n}"
+      },
+      "id": "retry-pro",
+      "name": "Retry with DeepSeek V4 Pro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 200]
+    },
+    {
+      "parameters": { "respondWith": "json", "responseBody": "={{ $json }}" },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1760, 300]
+    }
+  ],
+  "connections": {
+    "Webhook /retrieve": { "main": [[{ "node": "AI Agent (DeepSeek V4 Flash)", "type": "main", "index": 0 }]] },
+    "AI Agent (DeepSeek V4 Flash)": { "main": [[{ "node": "Gemini self-check", "type": "main", "index": 0 }]] },
+    "Embed query": { "main": [[{ "node": "pgvector kNN (top 20)", "type": "main", "index": 0 }]] },
+    "pgvector kNN (top 20)": { "main": [[{ "node": "Voyage rerank → top 5", "type": "main", "index": 0 }]] },
+    "Gemini self-check": { "main": [[{ "node": "IF faithfulness < 0.7", "type": "main", "index": 0 }]] },
+    "IF faithfulness < 0.7": {
+      "main": [
+        [{ "node": "Retry with DeepSeek V4 Pro", "type": "main", "index": 0 }],
+        [{ "node": "Respond", "type": "main", "index": 0 }]
+      ]
+    },
+    "Retry with DeepSeek V4 Pro": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
   "active": false,
-  "version": 1
+  "settings": { "executionOrder": "v1" },
+  "tags": ["rag-platform", "retrieval", "agentic"]
 }

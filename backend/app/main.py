@@ -37,13 +37,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers — M2: wire these up ───────────────────────
-# from app.api import auth, admin, chat, webhooks, onboarding
-# app.include_router(auth.router, prefix="/auth", tags=["Auth"])
-# app.include_router(admin.router, prefix="/admin", tags=["Admin"])
-# app.include_router(chat.router, prefix="/chat", tags=["Chat"])
-# app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
-# app.include_router(onboarding.router, prefix="/onboarding", tags=["Onboarding"])
+# ── Routers — wired up by M2 ──────────────────────────
+from app.api import auth, admin, chat, webhooks, onboarding  # noqa: E402
+app.include_router(auth.router,        prefix="/auth",        tags=["Auth"])
+app.include_router(admin.router,       prefix="/admin",       tags=["Admin"])
+app.include_router(chat.router,        prefix="/chat",        tags=["Chat"])
+app.include_router(webhooks.router,    prefix="/webhooks",    tags=["Webhooks"])
+app.include_router(onboarding.router,  prefix="/onboarding",  tags=["Onboarding"])
+
+# ── MCP server (optional) ─────────────────────────────
+# Exposes /chat/query as MCP tools for Claude Desktop & other MCP clients.
+if settings.MCP_ENABLED:
+    try:
+        from app.mcp.server import mcp_router
+        app.include_router(mcp_router, prefix="/mcp", tags=["MCP"])
+        logger.info("   MCP server mounted at /mcp")
+    except Exception as e:  # don't crash on optional dep
+        logger.warning(f"   MCP server NOT mounted: {e}")
 
 
 @app.get("/health", tags=["Health"])
@@ -52,9 +62,9 @@ async def health_check():
     return JSONResponse({
         "status": "ok",
         "database": "unchecked",   # M2: add real DB ping
-        "redis": "unchecked",      # M2: add real Redis ping
         "n8n": "unchecked",        # M2: add real n8n ping
         "mock_n8n": settings.MOCK_N8N,
+        "mcp_enabled": settings.MCP_ENABLED,
         "version": "1.0.0",
     })
 

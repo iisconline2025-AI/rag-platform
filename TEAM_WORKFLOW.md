@@ -26,7 +26,7 @@ cd rag-platform
 git checkout dev
 git checkout -b feat/<your-feature>   # see branch name above
 cp .env.example .env                  # fill in your secrets
-docker compose up -d                  # start postgres + redis + n8n
+docker compose up -d                  # start postgres + n8n
 ```
 
 ## PR Rules

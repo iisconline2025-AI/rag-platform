@@ -36,5 +36,5 @@ async def get_me(token: str = Depends(oauth2_scheme)):
 
 @router.post("/logout", summary="Logout")
 async def logout(token: str = Depends(oauth2_scheme)):
-    """M2: Add token to Redis blacklist."""
+    """Stateless JWT — logout is a client-side discard.  No server state."""
     return {"message": "Logged out"}

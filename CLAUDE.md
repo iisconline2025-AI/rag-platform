@@ -11,7 +11,7 @@ A multi-tenant, RAG-grounded customer onboarding platform: upload any document s
 | API Gateway | Python 3.11 · FastAPI · Uvicorn |
 | RAG Engine | n8n (self-hosted) · workflows as JSON |
 | Database | PostgreSQL 15 + pgvector extension |
-| Cache / Sessions | Redis 7 |
+| Cache / Sessions | n/a — stateless JWT + in-process slowapi (Redis removed) |
 | Frontend | Next.js 14 · TypeScript · TailwindCSS |
 | AI | OpenAI API (text-embedding-3-small + gpt-4o-mini) |
 | WhatsApp Bot | Twilio Programmable Messaging |
@@ -72,7 +72,7 @@ cd rag-platform
 cp .env.example .env          # fill in your secrets
 
 # 2. Start all services
-docker compose up -d          # postgres + pgvector + redis + n8n
+docker compose up -d          # postgres + pgvector + n8n (no redis)
 
 # 3. Run backend
 cd backend

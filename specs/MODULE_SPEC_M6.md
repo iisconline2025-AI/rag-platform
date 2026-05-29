@@ -97,3 +97,32 @@ Format them as JSON: {"follow_up_questions": ["q1", "q2", "q3"]}
 - [ ] Conversation history included in LLM context
 - [ ] `tenant_id` filter applied â€” cross-tenant leakage = 0
 - [ ] Export `n8n-workflows/retrieval-pipeline.json` committed to repo
+
+---
+
+## ?? Locked Scope Update (M1 / 29-May)
+
+**Agentic loop**: The retrieval workflow uses n8n's **AI Agent node** with these tools:
+1. `search_knowledge_base` — Voyage embed ? pgvector kNN(top 20) ? Voyage rerank ? top 5 chunks
+2. `search_ephemeral` — same as above but on `ephemeral_chunks` (filter by `conversation_id`)
+3. `ask_clarifying_question` — returns `requires_clarification=true` early
+4. `web_lookup` — optional, per-tenant opt-in
+
+**Models** (locked):
+- Generation: **DeepSeek V4 Flash** via OpenAI-compatible base URL `https://api.deepseek.com`
+- Self-check: **Gemini 3.5 Flash** — returns 0–1 faithfulness score
+- Fallback: if faithfulness < 0.7 ? retry once with **DeepSeek V4 Pro**
+
+**Output contract** (must match `specs/openapi.yaml` `ChatQueryResponse`):
+```json
+{
+  "answer": "...",
+  "sources": [...],
+  "follow_up_questions": [...],
+  "faithfulness": 0.92,
+  "requires_clarification": false,
+  "metadata": { "model": "deepseek-v4-flash", ... }
+}
+```
+
+See [`n8n-workflows/retrieval-pipeline.json`](../n8n-workflows/retrieval-pipeline.json) for the scaffold M1 committed.
