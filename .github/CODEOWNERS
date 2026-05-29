@@ -1,0 +1,34 @@
+# Each line: pattern  @owner1 @owner2
+# These owners get auto-requested for review on matching files.
+# Replace usernames with real GitHub handles before activating.
+
+# Global fallback
+*                                       @your-gh-handle
+
+# Module ownership (update handles as team confirms)
+/specs/openapi.yaml                     @m1-handle
+/docker-compose.yml                     @m1-handle @your-gh-handle
+/.github/                               @your-gh-handle
+/database/                              @your-gh-handle
+/docs/                                  @m11-handle
+/backend/Dockerfile                     @your-gh-handle
+/frontend/Dockerfile                    @your-gh-handle
+/backend/app/main.py                    @m2-handle
+/backend/alembic/                       @m2-handle
+/backend/scripts/                       @m2-handle
+/backend/app/api/admin.py               @m3-handle
+/backend/app/api/chat.py                @m3-handle
+/backend/app/api/webhooks.py            @m4-handle
+/backend/app/bots/slack.py              @m4-handle
+/backend/app/bots/whatsapp.py           @m12-handle
+/backend/app/bots/tenant_map.py         @m12-handle
+/backend/app/api/onboarding.py          @m13-handle
+/n8n-workflows/ingestion-pipeline.json  @m5-handle
+/n8n-workflows/retrieval-pipeline.json  @m6-handle
+/frontend/src/app/admin/                @m8-handle
+/frontend/src/components/admin/         @m8-handle
+/frontend/src/app/chat/                 @m9-handle
+/frontend/src/components/chat/          @m9-handle
+/frontend/src/app/onboarding/           @m13-handle
+/evaluation/                            @m10-handle
+/tests/                                 @m10-handle
