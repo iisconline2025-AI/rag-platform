@@ -69,3 +69,46 @@ python -m app.scripts.seed_admin
 - [ ] `POST /auth/login` returns JWT
 - [ ] `GET /auth/me` returns user with valid JWT, 401 without
 - [ ] Unit tests pass: `pytest tests/test_auth.py`
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** Python 3.11, FastAPI, Pydantic v2, SQLAlchemy 2.0 ORM, Alembic migrations, JWT (python-jose), bcrypt, pytest.
+- **Nice-to-have:** Async SQLAlchemy, dependency-injection patterns, OAuth2 password flow, slowapi rate-limiting.
+- **Soft skills:** Defensive coding (validate every input), security mindset.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Environment
+1. `cd backend && python -m venv .venv && .venv\Scripts\activate`
+2. `pip install -r requirements.txt`
+3. Confirm `uvicorn app.main:app --reload` boots (errors expected before DB is up — that's OK).
+4. Create branch `feat/auth` from `main`.
+
+### Day 2 — Alembic + Models
+5. Initialize Alembic: `cd backend && alembic init alembic` (skip if folder exists).
+6. Configure `alembic.ini` to read `DATABASE_URL` from env: in `alembic/env.py` import `settings` and set `config.set_main_option('sqlalchemy.url', settings.DATABASE_URL)`.
+7. Import `app.models.models` in `alembic/env.py` and set `target_metadata = Base.metadata`.
+8. Generate initial migration: `alembic revision --autogenerate -m "initial schema"`.
+9. Review the generated SQL in `alembic/versions/*.py` — confirm `vector(1024)`, HNSW indexes, all 9 tables present.
+10. Apply: `alembic upgrade head`. Verify in Neon console all tables exist.
+
+### Day 3 — Auth + Seed
+11. Implement `app/core/security.py` helpers: `hash_password`, `verify_password`, `create_access_token`, `decode_access_token`.
+12. Implement `app/core/dependencies.py`: `get_current_user`, `require_role(role)`.
+13. Wire `app/api/auth.py` endpoints: `POST /login`, `POST /register`, `GET /me`, `POST /logout`.
+14. Build `scripts/seed_admin.py`: creates 1 tenant + 1 super_admin user from env vars; idempotent.
+15. Run end-to-end: `python -m scripts.seed_admin` → `curl -X POST /auth/login` → save JWT → `curl -H "Authorization: Bearer " /auth/me`.
+
+### Day 4-5 — Tests + Hardening
+16. `tests/test_auth.py`: login success, login wrong password (401), expired token (401), valid /me, role guard.
+17. Add slowapi rate-limit to `/auth/login` (5/min per IP).
+18. Run `pytest -v` → target 90 %+ coverage on auth module.
+
+### Day 6 — Polish
+19. Add OpenAPI tags + examples so Swagger UI is presentable for demo.
+
+## Learning Resources
+- FastAPI security tutorial: https://fastapi.tiangolo.com/tutorial/security/
+- SQLAlchemy 2.0 ORM: https://docs.sqlalchemy.org/en/20/orm/quickstart.html
+- Alembic autogenerate caveats: https://alembic.sqlalchemy.org/en/latest/autogenerate.html

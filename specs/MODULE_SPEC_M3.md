@@ -64,3 +64,40 @@ async def retrieve(query, tenant_id, conversation_history, max_chunks=5): ...
 - [ ] Document status updates from `pending` → `completed` after n8n callback
 - [ ] `GET /admin/documents` returns paginated list filtered by current tenant
 - [ ] Integration test: upload PDF → query → get grounded answer
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** FastAPI, async Python, httpx, file upload (UploadFile, multipart), Pydantic v2, environment-driven config.
+- **Nice-to-have:** Streaming responses, background tasks, n8n webhook conventions.
+- **Soft skills:** Mock-first development (build against fake n8n so frontend isn't blocked).
+
+## Detailed Step-by-Step Plan
+### Day 1 — Mock-First
+1. Branch `feat/chat-api` from `main`.
+2. Read `specs/openapi.yaml` sections for `POST /chat/query` and `POST /admin/documents/upload`.
+3. Confirm `settings.MOCK_N8N = true` returns a hardcoded plausible response in `services/n8n_client.py`.
+
+### Day 2 — Document Upload
+4. Implement `POST /admin/documents/upload` (multipart): accept file → call `services/file_validator.validate_upload` → save to `UPLOAD_DIR` with UUID name → INSERT row into `documents` with status=`pending` → call `n8n_client.ingest()` → return document ID.
+5. Implement `GET /admin/documents` — paginated list filtered by `tenant_id`.
+6. Implement `DELETE /admin/documents/{id}` — soft-delete + remove chunks.
+7. Implement `POST /admin/documents/url` — accept JSON `{url, title}`; same flow but pass URL to n8n instead of file.
+
+### Day 3 — Chat Endpoint
+8. Implement `POST /chat/query`: validate JWT → load last 5 messages from `chat_messages` for conversation_id → call `n8n_client.retrieve(query, tenant_id, history)` → INSERT both user + assistant messages → return `{answer, sources, faithfulness, requires_clarification, follow_up_questions}`.
+9. Implement `POST /chat/conversations` (create new) and `GET /chat/conversations` (list).
+
+### Day 4 — Ingestion Callback
+10. Implement `POST /webhooks/ingestion-status` — guard with `X-Callback-Token` header == `settings.N8N_CALLBACK_TOKEN` → UPDATE `documents` set status, page_count, chunk_count.
+
+### Day 5 — MCP Hook
+11. Coordinate with MCP tools (`backend/app/mcp/tools.py`): replace TODO with real tenant_slug → tenant_id DB lookup, then call `n8n_client.retrieve`.
+
+### Day 6 — Tests
+12. `tests/test_chat.py`: query returns sources, conversation history persisted, tenant isolation (user A cannot read user B's docs).
+
+## Learning Resources
+- FastAPI file uploads: https://fastapi.tiangolo.com/tutorial/request-files/
+- httpx async: https://www.python-httpx.org/async/

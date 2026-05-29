@@ -83,3 +83,45 @@ async def n8n_ingestion_callback(payload: IngestionStatusPayload, db: AsyncSessi
 5. Acknowledge to user via TwiML, then process the follow-up question against ephemeral + persistent retrieval.
 
 **Slack moved to stretch**: only attempt after WhatsApp + MCP are demo-stable.
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** FastAPI, Twilio Programmable Messaging API, TwiML, HMAC signature validation, Slack Events API + Bolt SDK, ngrok for local webhook testing.
+- **Nice-to-have:** Async background tasks, retry/backoff patterns.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Setup
+1. Branch `feat/webhooks`.
+2. Create Twilio account, activate WhatsApp Sandbox (https://console.twilio.com → Messaging → Try it out → WhatsApp), join sandbox from your phone (`join <code>` to the sandbox number).
+3. Install ngrok: `choco install ngrok`; `ngrok http 8000` → copy https URL.
+4. In Twilio console set sandbox `When a message comes in` to `https://<ngrok>.ngrok-free.app/webhooks/whatsapp`.
+
+### Day 2 — WhatsApp Webhook (text only)
+5. Implement `POST /webhooks/whatsapp` to accept `application/x-www-form-urlencoded` (Twilio sends `From`, `Body`, `MediaUrl0`, etc.).
+6. Validate Twilio signature using `twilio.request_validator.RequestValidator` and `settings.TWILIO_AUTH_TOKEN` (skip if `settings.DEBUG`).
+7. Look up tenant by `From` phone in `whatsapp_tenant_map` table; reject with TwiML error if not mapped.
+8. Call `services/n8n_client.retrieve(Body, tenant_id, history=[])` → wrap answer in TwiML `<Message>` and return.
+9. Test: send WhatsApp message → see mock answer reply.
+
+### Day 3 — WhatsApp Ephemeral Upload
+10. When `MediaUrl0` is present, download with `httpx` (use Twilio basic-auth: account_sid + auth_token).
+11. Run `services/file_validator.validate_upload(content, mime)` against 10 MB cap and MIME allowlist.
+12. Save to `/tmp/<uuid>.<ext>`.
+13. POST to `settings.N8N_EPHEMERAL_INGEST_WEBHOOK_URL` with `{tenant_id, conversation_id, file_path, ttl_minutes: 60}`.
+14. Reply with TwiML: `"Got it — I've indexed your file. Ask me anything about it for the next hour."`
+
+### Day 4 — Ingestion Callback
+15. Implement `POST /webhooks/ingestion-status` (co-owned with M3) — same handler; verify `X-Callback-Token`.
+
+### Day 5 — Slack (Stretch)
+16. `app/bots/slack.py`: implement `POST /webhooks/slack/events`; verify `X-Slack-Signature`; handle `app_mention` event → call retrieve → `chat.postMessage` reply.
+
+### Day 6 — Tests
+17. `tests/test_webhooks.py`: mock Twilio request, assert TwiML response shape; test signature rejection (403).
+
+## Learning Resources
+- Twilio WhatsApp Quickstart: https://www.twilio.com/docs/whatsapp/quickstart/python
+- Twilio request validation: https://www.twilio.com/docs/usage/webhooks/webhooks-security
+- Slack Bolt for Python: https://slack.dev/bolt-python/concepts

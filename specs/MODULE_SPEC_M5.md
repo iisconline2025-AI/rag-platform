@@ -106,3 +106,45 @@ return chunks.map(c => ({ json: c }));
 POST /webhooks/n8n/ingestion-status
 { "document_id": "uuid", "status": "completed", "chunk_count": 42, "callback_token": "<N8N_CALLBACK_TOKEN>" }
 ```
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** n8n (self-hosted), JSON workflow editing, HTTP Request node, Function (JS) node, Postgres node, webhook triggers, Voyage AI embeddings API, basic PDF parsing.
+- **Nice-to-have:** OCR with OpenAI gpt-4o vision, recursive text splitting, n8n credentials management.
+
+## Detailed Step-by-Step Plan
+### Day 1 — n8n Up & Running
+1. Coordinate with M7 to confirm n8n on Railway is reachable. Local fallback: `docker compose up n8n` and open http://localhost:5678.
+2. Import `n8n-workflows/ingestion-pipeline.json` → Workflows → Import from file.
+3. Add credentials:
+   - **Postgres** → host/user/pass from `DATABASE_URL` (Neon).
+   - **HTTP Header Auth** (call it `VoyageAuth`) → `Authorization: Bearer <VOYAGE_API_KEY>`.
+   - **HTTP Header Auth** (`OpenAIAuth`) → for OCR fallback.
+
+### Day 2 — Wire Extraction
+4. Webhook node: path `/ingest`, method POST, response mode `Last Node`. Note the production URL — give to M3.
+5. Function node "Extract Text": if source_type=`pdf` use `pdf-parse` (n8n built-in), if scanned/image use OpenAI vision (HTTP Request to `https://api.openai.com/v1/chat/completions` with image_url payload).
+6. Test: trigger webhook with `{document_id, tenant_id, file_path, source_type:"pdf", title}` → confirm text extracted.
+
+### Day 3 — Chunk + Embed
+7. Function node "Chunk": split text into 512-token chunks with 50-token overlap. Output array of `{chunk_index, text, page_number}`.
+8. HTTP Request node "Voyage Embed": POST `https://api.voyageai.com/v1/embeddings` with `{input: [chunk_texts], model: "voyage-4-large", input_type: "document"}`. Returns 1024-dim vectors.
+9. Function node "Zip": combine chunks + embeddings into rows.
+
+### Day 4 — Store + Callback
+10. Postgres node "Insert Chunks": INSERT INTO `document_chunks (document_id, tenant_id, chunk_index, text, page_number, embedding)` VALUES …
+11. HTTP Request node "Callback": POST `{settings.API_BASE}/webhooks/ingestion-status` with header `X-Callback-Token: {{ .N8N_CALLBACK_TOKEN }}` and body `{document_id, status:"completed", chunk_count, page_count}`.
+12. On error branch: callback with status=`failed` + error_message.
+
+### Day 5 — Ephemeral Variant
+13. Open `n8n-workflows/ingest-ephemeral.json`; same flow but INSERT into `ephemeral_chunks` with `expires_at = NOW() + 1 hour` and `conversation_id` from payload.
+
+### Day 6 — Export + Document
+14. `Workflow → Download` → overwrite the JSON files in `n8n-workflows/` → commit. Add screenshot to `docs/n8n-setup.md`.
+
+## Learning Resources
+- n8n docs: https://docs.n8n.io/
+- Voyage AI embeddings: https://docs.voyageai.com/docs/embeddings
+- Token chunking: https://github.com/openai/tiktoken

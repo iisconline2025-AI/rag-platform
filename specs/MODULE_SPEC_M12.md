@@ -101,3 +101,45 @@ async def register_phone_for_tenant(phone_number: str, tenant_id: str):
 **Twilio signature validation**: required by Day 5 (security). Use `twilio.request_validator.RequestValidator` with `TWILIO_AUTH_TOKEN`.
 
 See ARCHITECTURE.md �2 for the two-upload-paths diagram.
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** Twilio WhatsApp API, TwiML, async Python, httpx, file MIME validation, conversation memory patterns.
+- **Nice-to-have:** Twilio status callbacks, media upload to S3, voice notes (stretch).
+- **Note:** Tushar owns M4 + M12 — same code area, treat as one workstream.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Sandbox + Pre-seed Map
+1. (See M4 step 1-4 for Twilio sandbox setup.)
+2. Pre-seed `whatsapp_tenant_map` table: INSERT 3 rows mapping your phone + 2 teammates' phones to the demo tenant.
+3. Implement `backend/app/bots/tenant_map.py` with `get_tenant_id_by_phone(from_number) -> Optional[UUID]`.
+
+### Day 2 — Text Flow
+4. Build `backend/app/bots/whatsapp.py`: `async def handle_message(from_number, body, conversation_id_or_new)`.
+5. Look up tenant; if missing, reply `"This number isn't registered. Please ask your admin to onboard you."`.
+6. Call `services/n8n_client.retrieve()` and format response → TwiML.
+
+### Day 3 — Media (Ephemeral Upload)
+7. Detect `MediaUrl0` + `MediaContentType0`. Download via httpx with Twilio basic auth.
+8. `services/file_validator.validate_upload` (10 MB WhatsApp cap, MIME allowlist).
+9. POST to N8N_EPHEMERAL_INGEST_WEBHOOK_URL with conversation_id.
+10. Reply: `"Indexed ✓ — ask me anything about this file for the next 60 minutes."`
+
+### Day 4 — Conversation Memory
+11. On every message, INSERT row into `chat_messages` with `channel='whatsapp'`, `conversation_id` keyed by `(tenant_id, from_number)`.
+12. Pass last 5 messages as `conversation_history` to retrieve call.
+
+### Day 5 — Twilio Signature Validation (HARD GATE)
+13. Wire `twilio.request_validator.RequestValidator` against `settings.TWILIO_AUTH_TOKEN`. Reject 403 if invalid (skip only if `settings.DEBUG`).
+14. Test: replay attack should be blocked.
+
+### Day 6 — Demo Polish
+15. Add typing-style UX: reply with quick `"🤔 Thinking..."` then send the answer in a second message (via Twilio REST API, not TwiML).
+16. Pre-stage 3 sample queries + 1 sample PDF for the demo recording.
+
+## Learning Resources
+- Twilio Python helper: https://www.twilio.com/docs/libraries/python
+- TwiML for WhatsApp: https://www.twilio.com/docs/whatsapp/api
+- Media downloads: https://www.twilio.com/docs/usage/webhooks/messaging-webhooks#media

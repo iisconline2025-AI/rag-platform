@@ -78,3 +78,41 @@ def test_tenant_a_cannot_see_tenant_b_docs():
 - [ ] `pytest tests/` passes with ≥ 90% pass rate
 - [ ] RAGAS report generated as JSON + printed summary
 - [ ] Load test: 10 concurrent `/chat/query` requests complete < 30s each
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** Python, pytest, RAGAS framework, Pandas, prompt-engineering judgment, dataset curation.
+- **Nice-to-have:** Locust or k6 for load testing, GitHub Actions for CI eval, Jupyter notebooks for analysis.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Sample Data
+1. Collect 5-10 sample PDFs (manuals, FAQs, SOPs) → drop in `evaluation/sample-data/` (≤ 5 MB each).
+2. Create folder `evaluation/qa-set/` with `ground_truth.jsonl` — start writing 30 entries.
+
+### Day 2 — Q&A Curation (30 pairs)
+3. For each PDF, write 3 questions of 3 types: factoid, multi-hop reasoning, "no answer in docs" (negative). JSON shape: `{question, expected_answer, expected_source_doc, expected_page, type}`.
+
+### Day 3 — RAGAS Harness
+4. `pip install ragas pandas pytest`.
+5. Create `evaluation/run_eval.py`:
+   - For each Q&A: POST /chat/query → collect `answer + sources`.
+   - Feed to RAGAS metrics: `faithfulness`, `answer_relevancy`, `context_precision`, `context_recall`.
+   - Save results CSV to `evaluation/results/run-{timestamp}.csv`.
+
+### Day 4 — Baseline + Negative Cases
+6. Run eval against staging. Publish baseline scores in `evaluation/RESULTS.md`.
+7. Add a "negative" check: for "no answer" questions, assert `requires_clarification=true`.
+
+### Day 5 — Integration Tests
+8. `tests/test_e2e.py` (pytest): upload doc → poll until status=completed → query → assert source appears in response. Use `MOCK_N8N=false` (point to staging).
+9. `tests/test_tenant_isolation.py`: tenant A's user cannot retrieve tenant B's docs.
+
+### Day 6 — Load Test (Stretch)
+10. Locust: 20 concurrent users for 5 min on /chat/query. Record p95 latency in RESULTS.md.
+
+## Learning Resources
+- RAGAS: https://docs.ragas.io/en/stable/
+- pytest fixtures: https://docs.pytest.org/en/stable/how-to/fixtures.html
+- Locust: https://locust.io/

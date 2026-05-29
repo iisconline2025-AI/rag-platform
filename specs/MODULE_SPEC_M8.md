@@ -69,3 +69,45 @@ const statusColors = {
 - [ ] Unauthorized access redirects to login
 - [ ] Loading spinners during API calls
 - [ ] Error toast on API failure
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** Next.js 14 App Router, TypeScript, TailwindCSS, React hooks, JWT in localStorage/cookies, file upload UX, drag-and-drop.
+- **Nice-to-have:** SWR or TanStack Query, shadcn/ui, optimistic updates, openapi-typescript codegen.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Scaffold
+1. `cd frontend && npm install`. Confirm `npm run dev` opens http://localhost:3000.
+2. Generate API client: `npx openapi-typescript ../specs/openapi.yaml -o src/types/api.ts`.
+3. Branch `feat/admin-ui`.
+4. Create `src/lib/api.ts`: `fetch` wrapper that auto-attaches `Bearer `.
+
+### Day 2 — Auth Pages
+5. `app/login/page.tsx`: email+password form → POST /auth/login → store token → redirect /admin.
+6. `app/admin/layout.tsx`: sidebar (Documents, Users, Tenants, Settings) + AuthGuard HOC redirecting to /login if no token.
+
+### Day 3 — Document Upload + List
+7. `app/admin/documents/page.tsx`: drag-drop zone (use `react-dropzone`) → multipart POST /admin/documents/upload → optimistic row insert.
+8. Status badges: pending (gray) / processing (yellow spinner) / completed (green) / failed (red). Poll every 5 sec for pending rows.
+9. Add second tab "Add by URL" → JSON POST /admin/documents/url.
+
+### Day 4 — Users + Tenants Mgmt
+10. `app/admin/users/page.tsx`: table of users, role dropdown (super_admin/admin/user), invite-user modal.
+11. `app/admin/tenants/page.tsx`: list tenants, create/edit modal, show usage (storage_used_bytes / 1 GB cap).
+
+### Day 5 — Settings + Polish
+12. `app/admin/settings/page.tsx`: API keys section (masked, copy button), rate-limit display.
+13. Dark mode toggle (TailwindCSS `dark:` classes + `next-themes`).
+14. Mobile responsive review.
+
+### Day 6 — Deploy + Tests
+15. Push to `main` → Vercel auto-deploys (M7 set this up).
+16. Cypress or Playwright smoke test: login → upload → see document in list.
+
+## Learning Resources
+- Next.js App Router: https://nextjs.org/docs/app
+- TailwindCSS: https://tailwindcss.com/docs/installation
+- openapi-typescript: https://github.com/drwpow/openapi-typescript
+- shadcn/ui: https://ui.shadcn.com

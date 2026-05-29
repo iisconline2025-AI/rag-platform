@@ -79,3 +79,44 @@ async def check_slug(slug: str, db: AsyncSession = Depends(get_db)):
 - [ ] Tenant admin page shows all tenants (super_admin only)
 - [ ] Deactivating a tenant prevents their users from logging in
 - [ ] E2E onboarding tested with all 3 demo companies (M11's demo dataset)
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** FastAPI, Next.js multi-step forms, validation (Pydantic + zod), file upload, tenant isolation patterns.
+- **Nice-to-have:** Stripe (stretch — paid plans), email service (Resend/Postmark) for welcome mail.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Design
+1. Branch `feat/onboarding`. Wireframe 3-step wizard:
+   - Step 1: Company info (name, slug, industry).
+   - Step 2: Admin user (name, email, password).
+   - Step 3: Upload first document → "You're ready! Open chat →".
+2. Draft DB extensions if any (most schema already present in `tenants` + `users`).
+
+### Day 2 — Backend
+3. `backend/app/api/onboarding.py`:
+   - `POST /onboarding/signup` — accepts `{company_name, slug, admin_email, admin_password, industry}`; creates tenant + super_admin user; returns JWT.
+   - `GET /onboarding/check-slug?slug=foo` — returns `{available: bool}`.
+4. Enforce slug uniqueness + reserved-word blocklist (`admin`, `api`, `www`).
+
+### Day 3 — Frontend Wizard
+5. `app/onboarding/page.tsx`: stepper component, useState for wizard data, validation per step (zod).
+6. Step 1: company form + live slug availability check (debounced 500 ms).
+7. Step 2: password strength meter; show terms checkbox.
+8. Step 3: drag-drop one file → POST /admin/documents/upload (uses fresh JWT) → "Setting up…" loading state.
+
+### Day 4 — Post-onboarding Redirect
+9. After step 3: redirect to `/chat` with conversation pre-created and a system "Welcome — try asking…" message.
+
+### Day 5 — Multi-tenant Isolation Test
+10. Coordinate with M10: write `tests/test_onboarding_isolation.py` — onboard tenant A, onboard tenant B, confirm B cannot see A's document.
+
+### Day 6 — Landing Page
+11. `app/page.tsx`: marketing landing — hero, 3 features, "Get started" CTA → /onboarding. Static HTML, no logic.
+
+## Learning Resources
+- Multi-step forms in React: https://www.smashingmagazine.com/2021/04/multi-step-form-react/
+- Zod validation: https://zod.dev/
+- Slug generation: https://github.com/Trott/slug

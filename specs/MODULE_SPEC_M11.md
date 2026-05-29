@@ -66,3 +66,46 @@ README, architecture diagrams, setup guides, demo dataset (3 tenant companies), 
 - [ ] 3 demo companies with sample documents in `evaluation/sample-data/`
 - [ ] Demo script rehearsed — runs in < 10 minutes
 - [ ] Presentation slides exported as PDF in `docs/`
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** Technical writing, Markdown, screenshots, Excalidraw / Mermaid, presentation skills.
+- **Nice-to-have:** ScreenToGif / OBS for demo recording, Figma, video editing basics.
+
+## Detailed Step-by-Step Plan
+### Day 1 — README Polish
+1. Pull repo. Read `ARCHITECTURE.md`, `docs/DEPLOYMENT.md`, `docs/DEMO.md` end-to-end.
+2. Rewrite `README.md` top section with: hero blurb, 1-screenshot, badges (build/coverage/license), 5-line quickstart.
+
+### Day 2 — Sample Data
+3. Define 3 demo tenant companies and pull their public PDFs:
+   - **Tenant A** "MakeCo": 2-3 product manuals.
+   - **Tenant B** "HelpDeskCo": IT SOPs.
+   - **Tenant C** "MaintainCo": maintenance guides.
+4. Store under `evaluation/sample-data/<tenant>/`.
+
+### Day 3 — Diagrams
+5. Refine 3 Excalidraw files in `docs/diagrams/`: open at https://excalidraw.com → File → Open → save back to `.excalidraw`. Export PNG to `docs/diagrams/png/` for slides.
+6. Verify Mermaid diagrams in ARCHITECTURE.md still render on GitHub.
+
+### Day 4 — ADRs (Architecture Decision Records)
+7. Create `docs/adr/` with one MD file per decision:
+   - 001-why-voyage-embeddings.md
+   - 002-deepseek-vs-openai.md
+   - 003-no-redis.md
+   - 004-ephemeral-uploads-pattern-A.md
+   - 005-mcp-server.md
+
+### Day 5 — Demo Script + Slides
+8. Build 10-slide deck (Google Slides / PPT): problem → solution → architecture → demo screenshots → cost → roadmap.
+9. Walk through `docs/DEMO.md` 3 times; refine timing.
+
+### Day 6 — Record
+10. Record 3-min demo video (OBS, 1080p): Web UI chat → WhatsApp upload → Claude Desktop MCP → eval scores. Upload to YouTube unlisted, link in README.
+
+## Learning Resources
+- ADR format: https://github.com/joelparkerhenderson/architecture-decision-record
+- Excalidraw: https://excalidraw.com
+- Mermaid live editor: https://mermaid.live

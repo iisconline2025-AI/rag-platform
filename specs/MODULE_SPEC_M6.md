@@ -126,3 +126,45 @@ Format them as JSON: {"follow_up_questions": ["q1", "q2", "q3"]}
 ```
 
 See [`n8n-workflows/retrieval-pipeline.json`](../n8n-workflows/retrieval-pipeline.json) for the scaffold M1 committed.
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** n8n LangChain nodes (`@n8n/n8n-nodes-langchain.agent`), tool-calling agents, Postgres + pgvector kNN queries, Voyage rerank API, Google Gemini API, DeepSeek API (OpenAI-compatible).
+- **Nice-to-have:** Prompt engineering for grounded answers, faithfulness scoring, fallback chains.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Import & Credentials
+1. Import `n8n-workflows/retrieval-pipeline.json`.
+2. Add credentials: `DeepSeekAuth` (Bearer DEEPSEEK_API_KEY, base URL `https://api.deepseek.com`), `GeminiAuth`, `VoyageAuth` (reuse M5's).
+
+### Day 2 — Query Embed + Retrieval Tool
+3. Webhook `/retrieve` POST → receives `{query, tenant_id, conversation_history, max_chunks}`.
+4. HTTP "Embed Query": Voyage embeddings with `input_type: "query"`.
+5. Postgres "Search KB": `SELECT chunk_id, document_id, text, page_number, 1 - (embedding <=> ) AS score FROM document_chunks WHERE tenant_id =  ORDER BY embedding <=>  LIMIT 20`.
+6. Postgres "Search Ephemeral": same against `ephemeral_chunks` filtered by `conversation_id` and `expires_at > NOW()`.
+
+### Day 3 — Rerank + Agent
+7. HTTP "Voyage Rerank": POST `https://api.voyageai.com/v1/rerank` `{query, documents:[chunk_texts], model: "rerank-2.5", top_k: 5}`.
+8. LangChain Agent node:
+   - LLM: DeepSeek V4 Flash (HTTP creds, model=`deepseek-chat`).
+   - System prompt: "You are a grounded assistant. Cite sources as [doc_title, p.X]. If chunks don't answer, set requires_clarification=true."
+   - Tools: `search_kb`, `search_ephemeral`, `ask_clarifying_question`, `web_lookup` (stretch).
+
+### Day 4 — Self-Check Loop
+9. HTTP "Gemini Faithfulness": POST `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` with prompt scoring (0-1) whether answer is supported by chunks.
+10. IF node `faithfulness < 0.7` → branch to DeepSeek V4 Pro retry (model=`deepseek-reasoner`) with stricter prompt.
+
+### Day 5 — Output Contract
+11. Function "Format Response": emit JSON `{answer, sources:[{document_id, title, chunk_text, page_number, score}], faithfulness, requires_clarification, follow_up_questions:[3], metadata:{model, retrieval_time_ms, chunks_retrieved}}`.
+12. Respond to Webhook node.
+
+### Day 6 — Test + Export
+13. Manually trigger with sample queries. Verify citation accuracy. Export workflow → overwrite JSON → commit.
+
+## Learning Resources
+- n8n AI Agent node: https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/
+- DeepSeek API: https://api-docs.deepseek.com/
+- Gemini API: https://ai.google.dev/gemini-api/docs
+- pgvector kNN: https://github.com/pgvector/pgvector#querying

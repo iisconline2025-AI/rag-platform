@@ -80,3 +80,43 @@ interface ChatQueryResponse {
 - [ ] Typing indicator shown while waiting for response
 - [ ] Works on mobile (responsive at 375px width)
 - [ ] Dark mode toggle working
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** Next.js 14, TypeScript, TailwindCSS, React state mgmt, Markdown rendering (`react-markdown`), streaming/SSE basics.
+- **Nice-to-have:** `@uiw/react-md-editor`, syntax highlighting (`rehype-highlight`), zustand state, mobile-first design.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Wireframe
+1. Branch `feat/chat-ui`. Sketch layout: left sidebar (conversation list + "New chat" button) / center chat area / right collapsible "Sources" drawer.
+2. Install `react-markdown` `rehype-highlight` `rehype-raw`.
+
+### Day 2 — Message Components
+3. `components/chat/Message.tsx`: user bubble (right, blue) vs assistant bubble (left, surface). Render markdown with code-block syntax highlighting.
+4. `components/chat/CitationCard.tsx`: shows document title, page number, snippet, score. Click → opens Sources drawer.
+5. `components/chat/FaithfulnessBadge.tsx`: green (≥0.85) / amber (0.7-0.85) / red (<0.7); tooltip explains "self-check score".
+
+### Day 3 — Chat Page
+6. `app/chat/[conversationId]/page.tsx`: load history GET /chat/conversations/{id}/messages, render message list, autoscroll bottom.
+7. Input box at bottom: textarea + Send button (Cmd+Enter). On submit → POST /chat/query with conversation_id → append both messages.
+8. Show typing indicator (3 bouncing dots) while waiting.
+
+### Day 4 — Follow-ups + Clarifications
+9. Render `follow_up_questions` as 3 clickable chips below assistant message; click sends as next query.
+10. If `requires_clarification=true`, render a warning banner above the answer and highlight the badge red.
+
+### Day 5 — Sidebar + Polish
+11. `components/chat/Sidebar.tsx`: list conversations (GET /chat/conversations), highlight active, "New chat" → POST /chat/conversations → redirect.
+12. Conversation title auto-generated from first user message (truncate 40 chars).
+13. Dark mode default; light theme toggle.
+
+### Day 6 — Mobile + Demo Prep
+14. Test on iPhone-width (375 px). Drawer becomes full-screen on mobile.
+15. Pre-seed 3 demo conversations for screenshots.
+
+## Learning Resources
+- react-markdown: https://github.com/remarkjs/react-markdown
+- TailwindCSS chat UI patterns: https://tailwindui.com/components/application-ui/messaging
+- Zustand: https://zustand-demo.pmnd.rs/

@@ -42,3 +42,39 @@ API contract owner, integration glue, PR gatekeeper, final E2E testing, demo orc
 - [ ] All 13 PRs reviewed and merged to `dev` before Day 6
 - [ ] E2E smoke test passes on clean `docker compose up`
 - [ ] Demo runs without errors
+
+
+---
+<!-- AUTO-APPENDED:SKILLS-V1 -->
+## Skills Required
+- **Must-have:** Git/GitHub (PRs, branching, merge conflicts), reading OpenAPI/YAML, writing Markdown docs, basic Docker, REST API contracts.
+- **Nice-to-have:** GitHub Actions CI, Mermaid diagrams, Postman/Insomnia, semantic-release.
+- **Soft skills:** Daily standup facilitation, unblocking teammates, scope guardrails.
+
+## Detailed Step-by-Step Plan
+### Day 1 — Repo & Contract Lock
+1. Verify main builds clean: `docker compose config` and `cd backend && python -m compileall app`.
+2. Tag the lock-in commit: `git tag v0.1-day1 && git push --tags`.
+3. Create GitHub Project board with columns: Backlog / In-Progress / Review / Done.
+4. Add issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `feature.md`.
+5. Open one tracking issue per module (M2…M13) and assign owner.
+6. Post Slack message with: repo URL, branch policy, `MODULE_SPEC_M*.md` link per person, daily standup time (15-min, 10:00 IST).
+
+### Day 2-3 — Active Gatekeeping
+7. Review every PR within 2 hours (sprint-mode SLA). Run smoke test before approving.
+8. Maintain `CHANGELOG.md` — one bullet per merged PR.
+9. Watch for contract drift: if anyone edits `specs/openapi.yaml` outside of you, revert and discuss.
+
+### Day 4-5 — Integration
+10. Coordinate the `MOCK_N8N=false` cutover: announce 1-hour freeze, M3+M5+M6 in same call.
+11. Run end-to-end smoke: upload PDF → verify chunks in DB → query via web UI → verify citation → query via WhatsApp.
+12. File bugs found as P0/P1/P2 issues; reassign to module owner.
+
+### Day 6 — Demo
+13. Record 3-min demo video per `docs/DEMO.md`.
+14. Push final `v1.0-demo` tag. Run `git log --oneline v0.1-day1..HEAD | wc -l` for retro stats.
+
+## Learning Resources
+- OpenAPI 3.0 spec: https://swagger.io/specification/
+- Conventional commits: https://www.conventionalcommits.org/
+- GitHub flow: https://docs.github.com/en/get-started/quickstart/github-flow
