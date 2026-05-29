@@ -1,0 +1,9 @@
+{
+  "_comment": "PLACEHOLDER — M5 will replace this with the real exported n8n workflow JSON.",
+  "_instructions": "To create: Build the workflow in n8n UI at http://localhost:5678, then export as JSON and replace this file.",
+  "name": "RAG Ingestion Pipeline",
+  "nodes": [],
+  "connections": {},
+  "active": false,
+  "version": 1
+}

@@ -1,0 +1,651 @@
+openapi: 3.1.0
+info:
+  title: IISc Grounded Agentic RAG Platform API
+  version: 1.0.0
+  description: |
+    Multi-tenant RAG platform API. FastAPI gateway — all RAG logic runs in n8n.
+    Base URL: http://localhost:8000
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ── Auth ──────────────────────────────────────────
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, default: bearer }
+        user:
+          $ref: '#/components/schemas/UserOut'
+
+    RegisterRequest:
+      type: object
+      required: [email, password, tenant_id]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        tenant_id: { type: string, format: uuid }
+        role: { type: string, enum: [admin, user], default: user }
+
+    # ── User ──────────────────────────────────────────
+    UserOut:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { type: string }
+        tenant_id: { type: string, format: uuid }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    UserList:
+      type: object
+      properties:
+        users:
+          type: array
+          items: { $ref: '#/components/schemas/UserOut' }
+        total: { type: integer }
+
+    # ── Tenant ────────────────────────────────────────
+    TenantCreate:
+      type: object
+      required: [name, slug]
+      properties:
+        name: { type: string, maxLength: 255 }
+        slug: { type: string, maxLength: 100, pattern: '^[a-z0-9-]+$' }
+        plan: { type: string, enum: [free, pro, enterprise], default: free }
+
+    TenantOut:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        plan: { type: string }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    TenantList:
+      type: object
+      properties:
+        tenants:
+          type: array
+          items: { $ref: '#/components/schemas/TenantOut' }
+        total: { type: integer }
+
+    # ── Document ──────────────────────────────────────
+    DocumentOut:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        title: { type: string }
+        source_type: { type: string, enum: [pdf, docx, txt, url] }
+        source_url: { type: string, nullable: true }
+        status: { type: string, enum: [pending, processing, completed, failed] }
+        chunk_count: { type: integer }
+        error_message: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    DocumentList:
+      type: object
+      properties:
+        documents:
+          type: array
+          items: { $ref: '#/components/schemas/DocumentOut' }
+        total: { type: integer }
+
+    UrlIngestRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+        title: { type: string }
+
+    # ── Chat ──────────────────────────────────────────
+    ChatQueryRequest:
+      type: object
+      required: [query]
+      properties:
+        query: { type: string, minLength: 1, maxLength: 2000 }
+        conversation_id: { type: string, format: uuid, nullable: true }
+        max_chunks: { type: integer, default: 5, minimum: 1, maximum: 20 }
+
+    SourceChunk:
+      type: object
+      properties:
+        document_id: { type: string, format: uuid }
+        title: { type: string }
+        chunk_text: { type: string }
+        page_number: { type: integer, nullable: true }
+        score: { type: number, format: float }
+
+    ChatQueryResponse:
+      type: object
+      properties:
+        answer: { type: string }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/SourceChunk' }
+        follow_up_questions:
+          type: array
+          items: { type: string }
+        conversation_id: { type: string, format: uuid }
+        metadata:
+          type: object
+          properties:
+            model: { type: string }
+            retrieval_time_ms: { type: integer }
+            chunks_retrieved: { type: integer }
+
+    ConversationOut:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string, nullable: true }
+        channel: { type: string }
+        created_at: { type: string, format: date-time }
+        message_count: { type: integer }
+
+    ChatMessageOut:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        role: { type: string, enum: [user, assistant] }
+        content: { type: string }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/SourceChunk' }
+        created_at: { type: string, format: date-time }
+
+    # ── Onboarding ────────────────────────────────────
+    OnboardingRegisterRequest:
+      type: object
+      required: [company_name, company_slug, admin_email, admin_password]
+      properties:
+        company_name: { type: string }
+        company_slug: { type: string, pattern: '^[a-z0-9-]+$' }
+        admin_email: { type: string, format: email }
+        admin_password: { type: string, minLength: 8 }
+        plan: { type: string, enum: [free, pro], default: free }
+
+    OnboardingRegisterResponse:
+      type: object
+      properties:
+        tenant: { $ref: '#/components/schemas/TenantOut' }
+        admin_user: { $ref: '#/components/schemas/UserOut' }
+        access_token: { type: string }
+
+    # ── Errors ────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      properties:
+        detail: { type: string }
+
+    # ── Health ────────────────────────────────────────
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string }
+        database: { type: string }
+        redis: { type: string }
+        n8n: { type: string }
+        version: { type: string }
+
+paths:
+  # ══════════════════════════════════════════
+  # AUTH
+  # ══════════════════════════════════════════
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login and get JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user (admin role required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserOut' }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user profile
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserOut' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (blacklist JWT in Redis)
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+
+  # ══════════════════════════════════════════
+  # ADMIN — DOCUMENTS
+  # ══════════════════════════════════════════
+  /admin/documents:
+    get:
+      tags: [Admin - Documents]
+      summary: List documents for current tenant
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [pending, processing, completed, failed] }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Document list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentList' }
+
+  /admin/documents/upload:
+    post:
+      tags: [Admin - Documents]
+      summary: Upload a document file (triggers n8n ingestion)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                title:
+                  type: string
+      responses:
+        '202':
+          description: Document accepted for ingestion
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentOut' }
+
+  /admin/documents/url:
+    post:
+      tags: [Admin - Documents]
+      summary: Ingest a document from URL (triggers n8n ingestion)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UrlIngestRequest' }
+      responses:
+        '202':
+          description: URL ingestion started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentOut' }
+
+  /admin/documents/{document_id}:
+    get:
+      tags: [Admin - Documents]
+      summary: Get document details
+      parameters:
+        - in: path
+          name: document_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Document detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentOut' }
+    delete:
+      tags: [Admin - Documents]
+      summary: Delete a document and its chunks
+      parameters:
+        - in: path
+          name: document_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+
+  # ══════════════════════════════════════════
+  # ADMIN — USERS
+  # ══════════════════════════════════════════
+  /admin/users:
+    get:
+      tags: [Admin - Users]
+      summary: List users in current tenant
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+
+  /admin/users/invite:
+    post:
+      tags: [Admin - Users]
+      summary: Invite a new user to the tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: User invited
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserOut' }
+
+  # ══════════════════════════════════════════
+  # ADMIN — TENANTS (super_admin only)
+  # ══════════════════════════════════════════
+  /admin/tenants:
+    get:
+      tags: [Admin - Tenants]
+      summary: List all tenants (super_admin only)
+      responses:
+        '200':
+          description: Tenant list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantList' }
+    post:
+      tags: [Admin - Tenants]
+      summary: Create a new tenant (super_admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TenantCreate' }
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantOut' }
+
+  /admin/tenants/{tenant_id}:
+    get:
+      tags: [Admin - Tenants]
+      summary: Get tenant by ID
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Tenant detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantOut' }
+    patch:
+      tags: [Admin - Tenants]
+      summary: Update tenant
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                is_active: { type: boolean }
+                plan: { type: string }
+      responses:
+        '200':
+          description: Updated tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantOut' }
+
+  # ══════════════════════════════════════════
+  # CHAT
+  # ══════════════════════════════════════════
+  /chat/query:
+    post:
+      tags: [Chat]
+      summary: Send a query — proxied to n8n retrieval webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChatQueryRequest' }
+      responses:
+        '200':
+          description: Grounded answer with citations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatQueryResponse' }
+
+  /chat/conversations:
+    get:
+      tags: [Chat]
+      summary: List conversations for current user
+      responses:
+        '200':
+          description: Conversation list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConversationOut' }
+
+  /chat/conversations/{conversation_id}:
+    get:
+      tags: [Chat]
+      summary: Get conversation with messages
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Conversation with messages
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/ConversationOut' }
+                  - type: object
+                    properties:
+                      messages:
+                        type: array
+                        items: { $ref: '#/components/schemas/ChatMessageOut' }
+    delete:
+      tags: [Chat]
+      summary: Delete a conversation
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+
+  # ══════════════════════════════════════════
+  # WEBHOOKS
+  # ══════════════════════════════════════════
+  /webhooks/whatsapp:
+    post:
+      tags: [Webhooks]
+      summary: Twilio WhatsApp incoming message webhook
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                Body: { type: string }
+                From: { type: string }
+                To: { type: string }
+      responses:
+        '200':
+          description: TwiML response
+          content:
+            application/xml:
+              schema: { type: string }
+
+  /webhooks/slack/events:
+    post:
+      tags: [Webhooks]
+      summary: Slack Events API webhook
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Slack event acknowledged
+
+  /webhooks/n8n/ingestion-status:
+    post:
+      tags: [Webhooks]
+      summary: n8n ingestion pipeline callback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document_id, status]
+              properties:
+                document_id: { type: string, format: uuid }
+                status: { type: string, enum: [completed, failed] }
+                chunk_count: { type: integer }
+                error_message: { type: string }
+      responses:
+        '200':
+          description: Status updated
+
+  # ══════════════════════════════════════════
+  # ONBOARDING
+  # ══════════════════════════════════════════
+  /onboarding/register:
+    post:
+      tags: [Onboarding]
+      summary: Register a new tenant (self-service onboarding)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OnboardingRegisterRequest' }
+      responses:
+        '201':
+          description: Tenant and admin user created, JWT returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingRegisterResponse' }
+
+  /onboarding/check-slug:
+    get:
+      tags: [Onboarding]
+      summary: Check if tenant slug is available
+      security: []
+      parameters:
+        - in: query
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Availability result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean }
+
+  # ══════════════════════════════════════════
+  # HEALTH
+  # ══════════════════════════════════════════
+  /health:
+    get:
+      tags: [Health]
+      summary: Service health check
+      security: []
+      responses:
+        '200':
+          description: All systems healthy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }

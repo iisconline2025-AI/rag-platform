@@ -1,0 +1,103 @@
+version: '3.9'
+
+# IISc RAG Platform — docker-compose.yml
+# Owner: M7 — extend this file with resource limits + health checks
+
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: rag-postgres
+    environment:
+      POSTGRES_DB: ragplatform
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragplatform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: rag-n8n
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: ragplatform
+      DB_POSTGRESDB_USER: raguser
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-n8nadmin}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - uploads:/uploads:ro
+    ports:
+      - "5678:5678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://raguser:${POSTGRES_PASSWORD:-changeme}@postgres:5432/ragplatform
+      REDIS_URL: redis://redis:6379/0
+      N8N_INGEST_WEBHOOK_URL: http://n8n:5678/webhook/ingest
+      N8N_RETRIEVE_WEBHOOK_URL: http://n8n:5678/webhook/retrieve
+    volumes:
+      - uploads:/uploads
+      - ./backend:/app   # hot reload in dev
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rag-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  n8n_data:
+  uploads:
