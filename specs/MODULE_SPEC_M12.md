@@ -1,4 +1,4 @@
-# MODULE_SPEC_M12 — WhatsApp Bot Specialist
+﻿# MODULE_SPEC_M12 — WhatsApp Bot Specialist
 
 **Owner**: Member 12 | **Track**: Bot | **Branch**: `feat/whatsapp-bot`
 
@@ -86,7 +86,7 @@ async def register_phone_for_tenant(phone_number: str, tenant_id: str):
 
 ---
 
-## ?? Locked Scope Update (M1 / 29-May)
+## [LOCKED] Locked Scope Update (M1 / 29-May)
 
 **Ephemeral file uploads from WhatsApp** (Pattern A):
 - Max size: 10 MB (`MAX_WHATSAPP_UPLOAD_BYTES`)
@@ -95,12 +95,12 @@ async def register_phone_for_tenant(phone_number: str, tenant_id: str):
 - Hourly cron `python -m scripts.cleanup_ephemeral` purges expired rows
 
 **`whatsapp_tenant_map`**:
-- Pre-seed at least 3 phone numbers ? tenant_id mappings before demo day
+- Pre-seed at least 3 phone numbers -> tenant_id mappings before demo day
 - Unmapped numbers default to seed tenant `iisc-demo` with a polite onboarding nudge
 
 **Twilio signature validation**: required by Day 5 (security). Use `twilio.request_validator.RequestValidator` with `TWILIO_AUTH_TOKEN`.
 
-See ARCHITECTURE.md �2 for the two-upload-paths diagram.
+See ARCHITECTURE.md --2 for the two-upload-paths diagram.
 
 
 ---

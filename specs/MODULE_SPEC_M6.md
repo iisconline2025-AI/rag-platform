@@ -1,4 +1,4 @@
-# MODULE_SPEC_M6 â€” n8n: Retrieval + Generation Pipeline
+ï»¿# MODULE_SPEC_M6 â€” n8n: Retrieval + Generation Pipeline
 
 **Owner**: Member 6 | **Track**: n8n | **Branch**: `feat/n8n-retrieve`
 **âš ï¸ CRITICAL PATH** â€” Must be complete by end of Day 3.
@@ -100,18 +100,18 @@ Format them as JSON: {"follow_up_questions": ["q1", "q2", "q3"]}
 
 ---
 
-## ?? Locked Scope Update (M1 / 29-May)
+## [LOCKED] Locked Scope Update (M1 / 29-May)
 
 **Agentic loop**: The retrieval workflow uses n8n's **AI Agent node** with these tools:
-1. `search_knowledge_base` — Voyage embed ? pgvector kNN(top 20) ? Voyage rerank ? top 5 chunks
-2. `search_ephemeral` — same as above but on `ephemeral_chunks` (filter by `conversation_id`)
-3. `ask_clarifying_question` — returns `requires_clarification=true` early
-4. `web_lookup` — optional, per-tenant opt-in
+1. `search_knowledge_base` -- Voyage embed -> pgvector kNN(top 20) -> Voyage rerank -> top 5 chunks
+2. `search_ephemeral` -- same as above but on `ephemeral_chunks` (filter by `conversation_id`)
+3. `ask_clarifying_question` -- returns `requires_clarification=true` early
+4. `web_lookup` -- optional, per-tenant opt-in
 
 **Models** (locked):
 - Generation: **DeepSeek V4 Flash** via OpenAI-compatible base URL `https://api.deepseek.com`
-- Self-check: **Gemini 3.5 Flash** — returns 0–1 faithfulness score
-- Fallback: if faithfulness < 0.7 ? retry once with **DeepSeek V4 Pro**
+- Self-check: **Gemini 3.5 Flash** -- returns 0--1 faithfulness score
+- Fallback: if faithfulness < 0.7 -> retry once with **DeepSeek V4 Pro**
 
 **Output contract** (must match `specs/openapi.yaml` `ChatQueryResponse`):
 ```json
