@@ -1,4 +1,4 @@
-# MODULE_SPEC_M4 — Backend: Webhooks (WhatsApp + Slack)
+﻿# MODULE_SPEC_M4 — Backend: Webhooks (WhatsApp + Slack)
 
 **Owner**: Member 4 | **Track**: Backend | **Branch**: `feat/webhooks`
 
@@ -67,7 +67,7 @@ async def n8n_ingestion_callback(payload: IngestionStatusPayload, db: AsyncSessi
 
 ---
 
-## ?? Locked Scope Update (M1 / 29-May)
+## [LOCKED] Locked Scope Update (M1 / 29-May)
 
 **MCP server**: A new `backend/app/mcp/` module exposes platform retrieval as MCP tools (`query_knowledge_base`, `list_documents`). M4 co-owns it with M3.
 - Endpoints: `GET /mcp/info`, `POST /mcp/rpc`

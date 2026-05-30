@@ -1,4 +1,4 @@
-# MODULE_SPEC_M5 — n8n: Ingestion Pipeline
+﻿# MODULE_SPEC_M5 — n8n: Ingestion Pipeline
 
 **Owner**: Member 5 | **Track**: n8n | **Branch**: `feat/n8n-ingest`
 **⚠️ CRITICAL PATH** — Must be complete by end of Day 3.
@@ -91,17 +91,17 @@ return chunks.map(c => ({ json: c }));
 
 ---
 
-## ?? Locked Scope Update (M1 / 29-May)
+## [LOCKED] Locked Scope Update (M1 / 29-May)
 
-**Embeddings**: Voyage `voyage-4-large` (1024 dims). The pgvector column is `vector(1024)` � see `database/init.sql`.
+**Embeddings**: Voyage `voyage-4-large` (1024 dims). The pgvector column is `vector(1024)` -- see `database/init.sql`.
 
 **Multimodal / OCR**: If a PDF has no extractable text (scanned image), call **OpenAI gpt-4o vision** from the `Extract + OCR` node to OCR each page. Mark `metadata.used_ocr = true` so we can audit cost.
 
 **Two ingestion workflows**:
-1. [`ingestion-pipeline.json`](../n8n-workflows/ingestion-pipeline.json) � admin uploads ? `document_chunks` (forever, tenant-wide)
-2. [`ingest-ephemeral.json`](../n8n-workflows/ingest-ephemeral.json) � WhatsApp/chat uploads ? `ephemeral_chunks` (1-hour TTL, conversation-scoped). Hourly cron purges via `cleanup_expired_ephemeral_chunks()`.
+1. [`ingestion-pipeline.json`](../n8n-workflows/ingestion-pipeline.json) -- admin uploads -> `document_chunks` (forever, tenant-wide)
+2. [`ingest-ephemeral.json`](../n8n-workflows/ingest-ephemeral.json) -- WhatsApp/chat uploads -> `ephemeral_chunks` (1-hour TTL, conversation-scoped). Hourly cron purges via `cleanup_expired_ephemeral_chunks()`.
 
-**Callback contract** (n8n ? FastAPI):
+**Callback contract** (n8n -> FastAPI):
 ```json
 POST /webhooks/n8n/ingestion-status
 { "document_id": "uuid", "status": "completed", "chunk_count": 42, "callback_token": "<N8N_CALLBACK_TOKEN>" }
