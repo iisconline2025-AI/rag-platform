@@ -1,3 +1,5 @@
+import ConversationList from './ConversationList';
+
 interface ChatLayoutProps {
   conversationId?: string;
   children?: React.ReactNode;
@@ -10,9 +12,7 @@ export default function ChatLayout({ conversationId, children }: ChatLayoutProps
         <div className="flex h-16 shrink-0 items-center border-b border-slate-100 px-6">
           <span className="text-sm font-semibold tracking-wide text-indigo-600">Chat</span>
         </div>
-        <div className="flex-1 overflow-y-auto px-4 py-4 text-xs text-slate-400">
-          Conversations placeholder
-        </div>
+        <ConversationList activeConversationId={conversationId} />
       </aside>
 
       <main className="flex flex-1 flex-col overflow-y-auto">
