@@ -8,9 +8,6 @@ import MessageInput from '../../../components/chat/MessageInput';
 import TypingIndicator from '../../../components/chat/TypingIndicator';
 import ChatEmptyState from '../../../components/chat/ChatEmptyState';
 import ChatErrorState from '../../../components/chat/ChatErrorState';
-import ClarificationBanner from '../../../components/chat/ClarificationBanner';
-import CitationsPanel from '../../../components/chat/CitationsPanel';
-import FaithfulnessBadge from '../../../components/chat/FaithfulnessBadge';
 import FollowUpChips from '../../../components/chat/FollowUpChips';
 import { sendQuery } from '../../../lib/chat/chatApi';
 import type { ChatMessageOut, ChatQueryResponse } from '../../../../chat/types/chat';
@@ -90,10 +87,7 @@ export default function NewChatPage() {
           {hasMessages ? <MessageList messages={messages} /> : <ChatEmptyState />}
 
           {lastResponse && hasMessages && (
-            <div className="flex flex-col gap-2 px-4 pb-3">
-              <ClarificationBanner requiresClarification={lastResponse.requires_clarification} />
-              <FaithfulnessBadge score={lastResponse.faithfulness} />
-              <CitationsPanel sources={lastResponse.sources} />
+            <div className="px-4 pb-3">
               <FollowUpChips questions={lastResponse.follow_up_questions} onSelect={handleSend} />
             </div>
           )}
