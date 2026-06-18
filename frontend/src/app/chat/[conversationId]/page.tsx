@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import ChatAuthGuard from '../../../components/chat/ChatAuthGuard';
 import ChatLayout from '../../../components/chat/ChatLayout';
 import MessageList from '../../../components/chat/MessageList';
 import MessageInput from '../../../components/chat/MessageInput';
@@ -103,32 +104,34 @@ export default function ConversationPage({ params }: ConversationPageProps) {
   const hasMessages = messages.length > 0;
 
   return (
-    <ChatLayout conversationId={conversationId}>
-      <div className="flex flex-1 flex-col">
-        {isLoadingHistory && <TypingIndicator />}
+    <ChatAuthGuard>
+      <ChatLayout conversationId={conversationId}>
+        <div className="flex flex-1 flex-col">
+          {isLoadingHistory && <TypingIndicator />}
 
-        {!isLoadingHistory && historyError && <ChatErrorState onRetry={loadHistory} />}
+          {!isLoadingHistory && historyError && <ChatErrorState onRetry={loadHistory} />}
 
-        {!isLoadingHistory && !historyError && (
-          <>
-            {hasMessages ? <MessageList messages={messages} /> : <ChatEmptyState />}
+          {!isLoadingHistory && !historyError && (
+            <>
+              {hasMessages ? <MessageList messages={messages} /> : <ChatEmptyState />}
 
-            {lastResponse && hasMessages && (
-              <div className="flex flex-col gap-2 px-4 pb-3">
-                <ClarificationBanner requiresClarification={lastResponse.requires_clarification} />
-                <FaithfulnessBadge score={lastResponse.faithfulness} />
-                <CitationsPanel sources={lastResponse.sources} />
-                <FollowUpChips questions={lastResponse.follow_up_questions} onSelect={handleSend} />
-              </div>
-            )}
+              {lastResponse && hasMessages && (
+                <div className="flex flex-col gap-2 px-4 pb-3">
+                  <ClarificationBanner requiresClarification={lastResponse.requires_clarification} />
+                  <FaithfulnessBadge score={lastResponse.faithfulness} />
+                  <CitationsPanel sources={lastResponse.sources} />
+                  <FollowUpChips questions={lastResponse.follow_up_questions} onSelect={handleSend} />
+                </div>
+              )}
 
-            {isSending && <TypingIndicator />}
-            {hasError && <ChatErrorState onRetry={handleRetry} />}
+              {isSending && <TypingIndicator />}
+              {hasError && <ChatErrorState onRetry={handleRetry} />}
 
-            <MessageInput onSubmit={handleSend} disabled={isSending} />
-          </>
-        )}
-      </div>
-    </ChatLayout>
+              <MessageInput onSubmit={handleSend} disabled={isSending} />
+            </>
+          )}
+        </div>
+      </ChatLayout>
+    </ChatAuthGuard>
   );
 }
