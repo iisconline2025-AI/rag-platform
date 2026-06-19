@@ -1,0 +1,7 @@
+sphinx>=7.2
+furo>=2024.0
+myst-parser>=3.0
+sphinxcontrib-mermaid>=0.9
+sphinx-copybutton>=0.5
+sphinx-autodoc2>=0.5
+sphinxcontrib-openapi>=0.8
