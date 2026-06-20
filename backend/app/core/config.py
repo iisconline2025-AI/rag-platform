@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     SLACK_BOT_TOKEN: str = ""
     SLACK_SIGNING_SECRET: str = ""
 
+    # ── Microsoft Teams (Bot Framework) ──────────────────────────────
+    TEAMS_APP_ID: str = ""        # Azure Bot "Microsoft App ID" — also the JWT audience
+    TEAMS_APP_PASSWORD: str = ""  # App client secret — used for Connector OAuth
+    TEAMS_TENANT_ID: str = ""     # AAD tenant id (optional, single-tenant bots)
+
     # ── File upload limits ───────────────────────────────────────────
     UPLOAD_DIR: str = "/uploads"
     MAX_UPLOAD_BYTES: int = 26_214_400               # 25 MB

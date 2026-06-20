@@ -7,6 +7,10 @@ import hmac
 import json
 import logging
 
+import httpx
+from jose import jwt
+from jose.exceptions import JWTError
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -18,13 +22,18 @@ from fastapi import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bots import slack
+from app.bots import slack, teams
 from app.bots.slack import SlackAPIError, SlackUserNotFoundError
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.dependencies import require_role
 from app.models.models import User
-from app.schemas.webhook import SlackOnboardRequest, SlackOnboardResponse
+from app.schemas.webhook import (
+    SlackOnboardRequest,
+    SlackOnboardResponse,
+    TeamsOnboardRequest,
+    TeamsOnboardResponse,
+)
 from app.services import message_service, pipeline_client
 from app.services.types import MessageContext
 
@@ -145,6 +154,158 @@ async def slack_events(
         event.get("thread_ts") or event.get("ts"),
     )
     return {"ok": True}
+
+
+# ── Microsoft Teams (Bot Framework) ─────────────────────────────────────────
+_TEAMS_OPENID_URL = "https://login.botframework.com/v1/.well-known/openidconfiguration"
+_TEAMS_ISSUER = "https://api.botframework.com"
+_jwks_cache: dict | None = None
+
+
+async def _teams_jwks() -> dict:
+    """Fetch and cache the Bot Framework signing keys (JWKS)."""
+    global _jwks_cache
+    if _jwks_cache is not None:
+        return _jwks_cache
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        meta = (await client.get(_TEAMS_OPENID_URL)).json()
+        _jwks_cache = (await client.get(meta["jwks_uri"])).json()
+    return _jwks_cache
+
+
+async def _verify_teams_jwt(auth_header: str | None) -> bool:
+    """Validate a Bot Framework bearer token (signature, issuer, audience).
+
+    Returns True if the token is valid for this bot (`TEAMS_APP_ID`).
+    Tests monkeypatch this seam to bypass live JWKS fetches.
+    """
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return False
+    if not settings.TEAMS_APP_ID:
+        logger.error("TEAMS_APP_ID not configured — rejecting Teams webhook")
+        return False
+    token = auth_header.split(" ", 1)[1]
+    try:
+        jwks = await _teams_jwks()
+        jwt.decode(
+            token, jwks,
+            algorithms=["RS256"],
+            audience=settings.TEAMS_APP_ID,
+            issuer=_TEAMS_ISSUER,
+        )
+        return True
+    except (JWTError, httpx.HTTPError, KeyError) as exc:
+        logger.warning("Teams JWT validation failed: %s", exc)
+        return False
+
+
+async def _process_teams_event(ctx: MessageContext) -> None:
+    """Background task — runs Steps 2–8 with its own DB session."""
+    async with AsyncSessionLocal() as db:
+        try:
+            await message_service.process_message(ctx, db)
+        except pipeline_client.PipelineError:
+            await teams.send_text(
+                ctx.teams_service_url, ctx.teams_conversation_id,
+                message_service.FALLBACK_MESSAGE, ctx.teams_reply_to_id,
+            )
+        except message_service.IdentityResolutionError as exc:
+            logger.error("Teams identity resolution failed: %s", exc)
+        except Exception:  # noqa: BLE001 — never let a bg task crash silently
+            logger.exception("Teams event processing failed (activity_id=%s)", ctx.request_id)
+
+
+@router.post("/teams/messages", summary="Microsoft Teams Bot Framework webhook")
+async def teams_messages(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify JWT → ACK 200 fast; heavy work runs in a BackgroundTask."""
+    raw = await request.body()
+    if not await _verify_teams_jwt(request.headers.get("Authorization")):
+        raise HTTPException(status_code=401, detail="Invalid Bot Framework token")
+
+    activity = json.loads(raw)
+    if activity.get("type") != "message":            # typing, conversationUpdate, …
+        return {"ok": True}
+
+    sender = activity.get("from") or {}
+    recipient = activity.get("recipient") or {}
+    if sender.get("id") and sender.get("id") == recipient.get("id"):   # loop guard
+        return {"ok": True}
+
+    activity_id = activity.get("id")
+
+    # Dedup: first writer wins; a duplicate activity id inserts nothing.
+    if activity_id:
+        result = await db.execute(
+            text("INSERT INTO processed_requests (request_id) VALUES (:rid) "
+                 "ON CONFLICT DO NOTHING"),
+            {"rid": activity_id},
+        )
+        await db.commit()
+        if result.rowcount == 0:
+            return {"ok": True}                       # duplicate — already handled
+
+    text_body = activity.get("text")
+    service_url = activity.get("serviceUrl")
+    conversation = activity.get("conversation") or {}
+    conversation_id = conversation.get("id")
+    aad_tenant_id = ((activity.get("channelData") or {}).get("tenant") or {}).get("id")
+    teams_user_id = sender.get("aadObjectId") or sender.get("id")
+
+    if not all([activity_id, text_body, service_url, conversation_id,
+                aad_tenant_id, teams_user_id]):
+        logger.warning(
+            "Teams activity missing required fields: id=%s has_text=%s service_url=%s "
+            "conv=%s tenant=%s user=%s",
+            activity_id, bool(text_body), bool(service_url), bool(conversation_id),
+            bool(aad_tenant_id), bool(teams_user_id),
+        )
+        return {"ok": True}                           # 200 so Bot Framework doesn't retry
+
+    ctx = MessageContext(
+        request_id=activity_id,
+        source="teams",
+        query=text_body,
+        teams_service_url=service_url,
+        teams_conversation_id=conversation_id,
+        teams_reply_to_id=activity_id,
+        teams_aad_tenant_id=aad_tenant_id,
+        teams_user_id=teams_user_id,
+    )
+    background_tasks.add_task(_process_teams_event, ctx)
+    return {"ok": True}
+
+
+@router.post("/teams/onboard", response_model=TeamsOnboardResponse, summary="Link a platform user to their Teams identity")
+async def teams_onboard(
+    body: TeamsOnboardRequest,
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Write the supplied Teams AAD object id onto the matching user row.
+
+    - 404 if no user with that email exists in the admin's tenant.
+    - 409 if the user already has a teams_user_id set.
+    """
+    result = await db.execute(
+        text("SELECT id, teams_user_id FROM users WHERE email = :email AND tenant_id = :tid"),
+        {"email": body.email, "tid": current_user.tenant_id},
+    )
+    row = result.mappings().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found in this tenant")
+    if row["teams_user_id"] is not None:
+        raise HTTPException(status_code=409, detail="User already has a Teams identity linked")
+
+    await db.execute(
+        text("UPDATE users SET teams_user_id = :tid WHERE id = :uid"),
+        {"tid": body.teams_user_id, "uid": row["id"]},
+    )
+    await db.commit()
+    return TeamsOnboardResponse(teams_user_id=body.teams_user_id, email=body.email)
 
 
 # ── Mock pipeline — dev only. Hosted here (already-registered /webhooks router)

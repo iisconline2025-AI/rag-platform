@@ -34,6 +34,7 @@ class User(Base):
     role = Column(String(50), default="user")  # super_admin | admin | user
     is_active = Column(Boolean, default=True)
     slack_user_id = Column(String(255), unique=True, nullable=True)
+    teams_user_id = Column(String(255), unique=True, nullable=True)  # AAD object id
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="users")
@@ -62,7 +63,7 @@ class Conversation(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     title = Column(String(500), nullable=True)
-    channel = Column(String(50), default="web")  # web | whatsapp | slack
+    channel = Column(String(50), default="web")  # web | whatsapp | slack | teams
     created_at = Column(DateTime, default=datetime.utcnow)
 
     messages = relationship("ChatMessage", back_populates="conversation", cascade="all, delete-orphan")
