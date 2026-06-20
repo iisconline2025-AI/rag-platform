@@ -1,4 +1,5 @@
 {
+  "id": "rag-ingest-ephemeral",
   "name": "Ephemeral Ingestion (1-hour TTL)",
   "nodes": [
     {
@@ -12,7 +13,8 @@
       "name": "Webhook /ingest-ephemeral",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1.1,
-      "position": [240, 300]
+      "position": [240, 300],
+      "webhookId": "ingest-ephemeral-v1"
     },
     {
       "parameters": {
@@ -64,6 +66,5 @@
     "Store ephemeral": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
-  "tags": ["rag-platform", "ephemeral"]
+  "settings": { "executionOrder": "v1" }
 }

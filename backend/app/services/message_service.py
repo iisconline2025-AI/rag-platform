@@ -51,6 +51,7 @@ async def process_message(ctx: MessageContext, db: AsyncSession) -> dict:
         "request_id": ctx.request_id,
         "tenant_id": str(ctx.tenant_id),
         "conversation_id": str(ctx.conversation_id),
+        "query": ctx.query,
         "current_message": ctx.query,
         "history": history,
     })

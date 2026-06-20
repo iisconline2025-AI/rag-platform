@@ -1,4 +1,4 @@
-"""Run the multi-application evaluation against the live /chat/query endpoint."""
+"""Run the multi-application evaluation against a live backend or n8n endpoint."""
 from __future__ import annotations
 
 import argparse
@@ -56,7 +56,132 @@ def _is_mock_response(payload: dict[str, Any]) -> bool:
     if isinstance(metadata, dict) and metadata.get("mock") is True:
         return True
     answer = str(payload.get("answer", "")).casefold()
-    return "mock mode" in answer or "mock response" in answer
+    return (
+        "mock mode" in answer
+        or "mock response" in answer
+        or "mock pipeline" in answer
+        or "sample response from the mock" in answer
+    )
+
+
+def _extract_text(value: Any) -> str:
+    """Best-effort extraction for common n8n and LLM response shapes."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n".join(text for item in value if (text := _extract_text(item)))
+    if not isinstance(value, dict):
+        return ""
+
+    for key in ("answer", "output", "response", "text", "content", "message"):
+        text = _extract_text(value.get(key))
+        if text:
+            return text
+
+    choices = value.get("choices")
+    if isinstance(choices, list) and choices:
+        text = _extract_text(choices[0].get("message") if isinstance(choices[0], dict) else choices[0])
+        if text:
+            return text
+
+    candidates = value.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        text = _extract_text(candidates[0])
+        if text:
+            return text
+
+    parts = value.get("parts")
+    if isinstance(parts, list):
+        return "\n".join(
+            part["text"]
+            for part in parts
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
+
+    return ""
+
+
+def _normalise_source(source: Any, index: int) -> dict[str, Any] | None:
+    if isinstance(source, str):
+        text = source.strip()
+        return {"title": f"source-{index}", "chunk_text": text} if text else None
+    if not isinstance(source, dict):
+        return None
+
+    chunk_text = (
+        source.get("chunk_text")
+        or source.get("content")
+        or source.get("text")
+        or source.get("pageContent")
+        or source.get("excerpt")
+    )
+    if not isinstance(chunk_text, str) or not chunk_text.strip():
+        return None
+
+    metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
+    title = (
+        source.get("title")
+        or source.get("document")
+        or source.get("source")
+        or metadata.get("title")
+        or metadata.get("document")
+        or f"source-{index}"
+    )
+    normalised = {
+        "title": str(title),
+        "chunk_text": chunk_text,
+    }
+    if source.get("score") is not None:
+        normalised["score"] = source["score"]
+    if source.get("page_number") is not None:
+        normalised["page_number"] = source["page_number"]
+    return normalised
+
+
+def _normalise_sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = (
+        payload.get("sources")
+        or payload.get("contexts")
+        or payload.get("context")
+        or payload.get("documents")
+        or payload.get("retrieved_documents")
+        or payload.get("candidates")
+        or []
+    )
+    if isinstance(candidates, str):
+        candidates = [candidates]
+    if not isinstance(candidates, list):
+        return []
+    sources: list[dict[str, Any]] = []
+    for index, source in enumerate(candidates, start=1):
+        normalised = _normalise_source(source, index)
+        if normalised is not None:
+            sources.append(normalised)
+    return sources
+
+
+def _normalise_direct_n8n_response(payload: Any) -> dict[str, Any]:
+    """Convert common n8n webhook/subworkflow outputs into ChatQueryResponse shape."""
+    if isinstance(payload, list):
+        if len(payload) == 1:
+            payload = payload[0]
+        else:
+            payload = {"sources": payload, "answer": _extract_text(payload)}
+    if not isinstance(payload, dict):
+        payload = {"answer": _extract_text(payload), "sources": []}
+
+    answer = _extract_text(payload)
+    sources = _normalise_sources(payload)
+    response = {
+        "answer": answer,
+        "sources": sources,
+        "follow_up_questions": payload.get("follow_up_questions", []),
+        "requires_clarification": bool(payload.get("requires_clarification", False)),
+        "metadata": payload.get("metadata", {}),
+    }
+    if payload.get("faithfulness") is not None:
+        response["faithfulness"] = payload["faithfulness"]
+    return response
 
 
 def _validate_chat_response(payload: Any) -> list[str]:
@@ -156,6 +281,77 @@ async def collect_system_outputs(
                 }
             )
             LOGGER.info("Collected %s/%s: %s", position, len(cases), case["id"])
+    return outputs
+
+
+async def collect_direct_n8n_outputs(
+    cases: list[dict[str, Any]],
+    *,
+    n8n_url: str,
+    token: str | None,
+    tenant_id: str | None,
+    timeout: float,
+    allow_mock: bool,
+    max_chunks: int,
+) -> list[dict[str, Any]]:
+    outputs: list[dict[str, Any]] = []
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for position, case in enumerate(cases, start=1):
+            payload = {
+                "Query": case["question"],
+                "query": case["question"],
+                "question": case["question"],
+                "tenant_id": tenant_id,
+                "case_id": case["id"],
+                "application": case["application"],
+                "category": case["category"],
+                "max_chunks": max_chunks,
+                "expected_sources": case.get("expected_sources", []),
+            }
+            started = time.perf_counter()
+            response = await client.post(n8n_url, headers=headers, json=payload)
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            response.raise_for_status()
+            try:
+                raw_payload = response.json()
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"{case['id']} returned non-JSON n8n response"
+                ) from exc
+            normalised = _normalise_direct_n8n_response(raw_payload)
+            response_errors = _validate_chat_response(normalised)
+            if response_errors:
+                raise RuntimeError(
+                    f"{case['id']} returned an invalid n8n response: "
+                    f"{', '.join(response_errors)}"
+                )
+            if _is_mock_response(normalised) and not allow_mock:
+                raise RuntimeError(
+                    "The n8n endpoint returned a fixed mock response. "
+                    "Use a real retrieval workflow or pass --allow-mock only for plumbing tests."
+                )
+
+            sources = normalised["sources"]
+            outputs.append(
+                {
+                    **case,
+                    "answer": normalised["answer"],
+                    "contexts": [source["chunk_text"] for source in sources],
+                    "retrieved_documents": [source.get("title") for source in sources],
+                    "expected_documents": [
+                        source["document"] for source in case.get("expected_sources", [])
+                    ],
+                    "system_faithfulness": normalised.get("faithfulness"),
+                    "requires_clarification": normalised.get("requires_clarification", False),
+                    "latency_ms": latency_ms,
+                    "response_metadata": {
+                        **normalised.get("metadata", {}),
+                        "evaluation_target": "direct_n8n",
+                    },
+                }
+            )
+            LOGGER.info("Collected %s/%s via n8n: %s", position, len(cases), case["id"])
     return outputs
 
 
@@ -356,15 +552,26 @@ async def async_main(args: argparse.Namespace) -> int:
         cases = [case for case in cases if case["application"] in requested]
     if args.max_cases:
         cases = cases[: args.max_cases]
-    outputs = await collect_system_outputs(
-        cases,
-        base_url=args.base_url,
-        token=args.token,
-        email=args.email,
-        password=args.password,
-        timeout=args.timeout,
-        allow_mock=args.allow_mock,
-    )
+    if args.n8n_url:
+        outputs = await collect_direct_n8n_outputs(
+            cases,
+            n8n_url=args.n8n_url,
+            token=args.n8n_token,
+            tenant_id=args.n8n_tenant_id,
+            timeout=args.timeout,
+            allow_mock=args.allow_mock,
+            max_chunks=args.max_chunks_per_query,
+        )
+    else:
+        outputs = await collect_system_outputs(
+            cases,
+            base_url=args.base_url,
+            token=args.token,
+            email=args.email,
+            password=args.password,
+            timeout=args.timeout,
+            allow_mock=args.allow_mock,
+        )
 
     scored_rows: list[dict[str, Any]] | None = None
     ragas_summary: dict[str, float] | None = None
@@ -407,7 +614,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--password", default=os.getenv("EVAL_PASSWORD"))
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--max-cases", type=int)
+    parser.add_argument("--max-chunks-per-query", type=int, default=5)
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    parser.add_argument(
+        "--n8n-url",
+        default=os.getenv("EVAL_N8N_URL"),
+        help="Call this n8n webhook directly instead of backend /chat/query.",
+    )
+    parser.add_argument("--n8n-token", default=os.getenv("EVAL_N8N_BEARER_TOKEN"))
+    parser.add_argument("--n8n-tenant-id", default=os.getenv("EVAL_TENANT_ID"))
     parser.add_argument("--skip-ragas", action="store_true")
     parser.add_argument("--allow-mock", action="store_true")
     parser.add_argument("--strict-dataset", action="store_true")

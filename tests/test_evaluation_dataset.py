@@ -13,6 +13,7 @@ from evaluation.generate_kubernetes_dataset import generate as generate_kubernet
 from evaluation.reporting import write_evaluation_bundle, write_preflight_bundle
 from evaluation.run_eval import (
     _is_mock_response,
+    _normalise_direct_n8n_response,
     build_application_summaries,
     build_quality_gate,
     build_summary,
@@ -131,7 +132,51 @@ class EvaluationDatasetTests(unittest.TestCase):
     def test_mock_response_detection_checks_metadata_and_answer(self) -> None:
         self.assertTrue(_is_mock_response({"answer": "ok", "metadata": {"mock": True}}))
         self.assertTrue(_is_mock_response({"answer": "This is a mock response"}))
+        self.assertTrue(
+            _is_mock_response({"answer": "This is a sample response from the mock pipeline"})
+        )
         self.assertFalse(_is_mock_response({"answer": "Grounded production response"}))
+
+    def test_direct_n8n_response_normalizes_sources(self) -> None:
+        payload = {
+            "answer": "Use the documented rollout steps.",
+            "contexts": [
+                {
+                    "document": "runbook.txt",
+                    "content": "Rollouts must include a canary and rollback window.",
+                    "score": 0.87,
+                }
+            ],
+        }
+
+        response = _normalise_direct_n8n_response(payload)
+
+        self.assertEqual(response["answer"], "Use the documented rollout steps.")
+        self.assertEqual(response["sources"][0]["title"], "runbook.txt")
+        self.assertEqual(
+            response["sources"][0]["chunk_text"],
+            "Rollouts must include a canary and rollback window.",
+        )
+
+    def test_direct_n8n_response_extracts_llm_text(self) -> None:
+        payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "Grounded answer from an OpenAI-compatible response."
+                    }
+                }
+            ],
+            "sources": ["Evidence excerpt"],
+        }
+
+        response = _normalise_direct_n8n_response(payload)
+
+        self.assertEqual(
+            response["answer"],
+            "Grounded answer from an OpenAI-compatible response.",
+        )
+        self.assertEqual(response["sources"][0]["chunk_text"], "Evidence excerpt")
 
     def test_summary_separates_ragas_and_negative_cases(self) -> None:
         outputs = [

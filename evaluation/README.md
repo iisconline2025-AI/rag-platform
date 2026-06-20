@@ -64,6 +64,22 @@ $env:OPENAI_API_KEY = "independent-evaluator-key"
 python -m evaluation.run_eval --suite-dataset --enforce-thresholds
 ```
 
+To evaluate a Railway n8n retrieval webhook directly, bypassing the FastAPI
+backend:
+
+```powershell
+$env:EVAL_N8N_URL = "https://<n8n-service>/webhook/<retrieval-path>"
+$env:EVAL_TENANT_ID = "<tenant-id-visible-to-ingested-docs>"
+
+python -m evaluation.run_eval --suite-dataset --n8n-url $env:EVAL_N8N_URL --skip-ragas --max-cases 3
+```
+
+The direct n8n mode sends `Query`, `query`, `question`, `tenant_id`, case
+metadata, and `max_chunks`. It expects the workflow to return JSON that can be
+normalized to `answer` plus `sources`/`contexts`. Use the backend mode when
+testing authentication, tenant isolation, conversation persistence, and the
+production API contract.
+
 Each run automatically writes timestamped and `latest` versions of:
 
 - JSON: complete machine-readable results
