@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT: str = "5/minute"   # per client IP on POST /auth/login
 
     # ── Database ─────────────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+asyncpg://raguser:changeme@localhost:5432/ragplatform"
+    DATABASE_URL: str = "postgresql+asyncpg://neondb_owner:npg_pZfyDjkngM74@ep-plain-shadow-aowguhj1.c-2.ap-southeast-1.aws.neon.tech/neondb?ssl=require"
 
     @property
     def SYNC_DATABASE_URL(self) -> str:
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
         return (
             self.DATABASE_URL
             .replace("+asyncpg", "+psycopg2")
-            .replace("ssl=require", "sslmode=require")
+            .replace("?ssl=require", "?sslmode=require")
         )
 
     # ── n8n ──────────────────────────────────────────────────────────
