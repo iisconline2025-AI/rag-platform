@@ -127,6 +127,9 @@ async def upload_document(
     # Persist file via storage backend (local path today, cloud URL later)
     location = await storage.store_upload(validated.filename, content)
 
+    # For R2, location IS a public URL — expose it as source_url so clients can see it
+    r2_url = location if settings.STORAGE_BACKEND == "r2" else None
+
     # Insert document record and audit entry in one transaction
     doc = Document(
         id=uuid.uuid4(),
@@ -135,6 +138,7 @@ async def upload_document(
         title=title or validated.filename,
         source_type=_MIME_TO_SOURCE_TYPE.get(validated.mime_type, "pdf"),
         file_path=location,
+        source_url=r2_url,
         status="pending",
     )
     db.add(doc)

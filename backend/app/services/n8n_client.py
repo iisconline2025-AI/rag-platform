@@ -55,8 +55,12 @@ async def ingest(
         "source_url":  source_url,
         "title":       title,
     }
+    logger.info("[n8n ingest] → POST %s", settings.N8N_INGEST_WEBHOOK_URL)
+    logger.info("[n8n ingest] → payload: %s", payload)
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(settings.N8N_INGEST_WEBHOOK_URL, json=payload)
+        logger.info("[n8n ingest] ← status: %s", resp.status_code)
+        logger.info("[n8n ingest] ← body: %s", resp.text[:500])
         resp.raise_for_status()
         return resp.json()
 
