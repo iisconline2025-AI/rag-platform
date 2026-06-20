@@ -80,10 +80,13 @@ jobs:
       - name: Install frontend dependencies
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
+        env:
+          NODE_ENV: development
         run: |
           npm --version
           node --version
           npm ci --include=dev --no-audit --no-fund
+          npm ls vitest
 
       - name: Run frontend tests
         if: steps.detect.outputs.exists == 'true'
