@@ -374,76 +374,94 @@ These were verified against the existing codebase and confirmed before implement
 
 ---
 
-## 6. [TODO] Cloud Storage Backend Extension
+## 6. Cloudflare R2 Storage Backend
 
-> **Status: Not started. Current approach (FastAPI download endpoint) is sufficient for Railway deployment.**
+> **Status: Approved, pending implementation.**
 
-The `storage.py` abstraction is designed so that moving from local disk to cloud
-storage requires changes in exactly one place: the `store_upload()` and
-`delete_upload()` functions in `backend/app/services/storage.py`.
+### Why R2 (not local disk)
 
-### Current approach (Railway deployment)
+Railway's filesystem is ephemeral — files written to disk are lost on every
+redeploy. R2 provides durable object storage with zero egress cost (Cloudflare
+serves the file directly to n8n without bandwidth charges).
 
-FastAPI and n8n run as separate Railway services with isolated filesystems.
-The handover mechanism is `source_url` — n8n always fetches the file via HTTP:
+### R2 bucket details (non-secret)
+
+| Setting | Value |
+|---|---|
+| Bucket name | `rag-platform` |
+| Public base URL | `https://pub-a9bb7d7b516244eaacc47d9cab962786.r2.dev` |
+| Region | `auto` (Cloudflare-managed) |
+| Access credentials | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` in `.env` / Railway Variables (never committed) |
+
+### How source_url changes
 
 ```
-File upload:  source_url = "https://<APP_BASE_URL>/admin/documents/{id}/download"
-              n8n GETs the file from FastAPI's download endpoint
-
-URL ingest:   source_url = "https://en.wikipedia.org/wiki/..."
-              n8n fetches directly from the web
+Before (local disk):  source_url = "https://<APP_BASE_URL>/admin/documents/{id}/download"
+After  (R2):          source_url = "https://pub-a9bb7d7b516244eaacc47d9cab962786.r2.dev/<uuid>_filename.pdf"
 ```
 
-`GET /admin/documents/{id}/download` serves the stored file from local disk.
-This works on Railway since FastAPI's own public URL is reachable by n8n.
+n8n fetches the file directly from R2's CDN — FastAPI is not in the download path.
 
-### Why cloud storage may be needed later
+### Files to change
 
-Railway's filesystem is ephemeral — files written to disk do not survive
-redeploys. If uploaded files need to outlive the container, they must be stored
-in a persistent external bucket (GCS or S3). The `source_url` contract with
-n8n stays the same; only `storage.py` and the download endpoint change.
+| File | Change |
+|---|---|
+| `requirements.txt` | Add `boto3>=1.34` (R2 is S3-compatible) |
+| `backend/app/core/config.py` | Add `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL` settings |
+| `backend/app/services/storage.py` | Add `r2` branch: `put_object` on upload, `delete_object` on delete; run via `asyncio.run_in_executor` (boto3 is sync) |
+| `backend/app/api/admin.py` | `upload_document`: use R2 URL directly as `source_url` when `STORAGE_BACKEND=r2`; keep `/download` endpoint for local backend |
+| `.env.example` | Document R2 settings with placeholders |
+| `backend/.env` | Set `STORAGE_BACKEND=r2` + real R2 credentials (not committed) |
 
-### What to implement when ready
+### `storage.py` R2 implementation sketch
 
-1. **Choose a provider** — GCS (free tier generous), S3, or Azure Blob. GCS
-   recommended given free hosting targets in ARCHITECTURE.md.
+```python
+def _r2_client():
+    import boto3
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+        region_name="auto",
+    )
 
-2. **Add config** to `config.py`:
-   ```python
-   STORAGE_BACKEND: str = "local"       # "local" | "gcs" | "s3"
-   GCS_BUCKET_NAME: str = ""
-   GCS_CREDENTIALS_JSON: str = ""       # base64-encoded service account JSON
-   ```
+# store_upload — R2 branch
+elif settings.STORAGE_BACKEND == "r2":
+    key = f"{uuid4()}_{Path(filename).name or 'upload'}"
+    s3 = _r2_client()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: s3.put_object(
+        Bucket=settings.R2_BUCKET_NAME, Key=key, Body=content
+    ))
+    return f"{settings.R2_PUBLIC_URL.rstrip('/')}/{key}"
 
-3. **Implement cloud branch in `storage.py`**:
-   ```python
-   # [TODO-CLOUD] GCS example
-   elif settings.STORAGE_BACKEND == "gcs":
-       from google.cloud import storage as gcs
-       client = gcs.Client.from_service_account_info(...)
-       bucket = client.bucket(settings.GCS_BUCKET_NAME)
-       blob_name = f"{uuid4()}_{Path(filename).name}"
-       blob = bucket.blob(blob_name)
-       blob.upload_from_string(content, content_type=mime_type)
-       return blob.public_url   # or generate a signed URL for private buckets
-   ```
+# delete_upload — R2 branch
+elif settings.STORAGE_BACKEND == "r2":
+    key = location.removeprefix(settings.R2_PUBLIC_URL.rstrip("/") + "/")
+    s3 = _r2_client()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: s3.delete_object(
+        Bucket=settings.R2_BUCKET_NAME, Key=key
+    ))
+```
 
-4. **Update n8n ingestion workflow** (M5) — change the "read file" node from
-   filesystem read to HTTP GET on the URL. n8n's built-in HTTP node handles
-   this natively.
+### `admin.py` source_url logic (upload_document)
 
-5. **Remove Docker shared volume** from `docker-compose.yml` (M7) once cloud
-   path is live and tested.
+```python
+if settings.STORAGE_BACKEND == "r2":
+    source_url = location          # store_upload returns the R2 public URL
+else:
+    source_url = f"{settings.APP_BASE_URL}/admin/documents/{doc.id}/download"
+```
 
-### Acceptance criteria for cloud extension
+### Acceptance criteria
 
-- [ ] Upload via `POST /admin/documents/upload` → file lands in GCS bucket
-- [ ] n8n ingestion workflow reads file from GCS URL (not local path)
-- [ ] `DELETE /admin/documents/{id}` removes the GCS object
-- [ ] Local dev still works with `STORAGE_BACKEND=local` (no cloud credentials needed)
-- [ ] Docker Compose volume mount removed from `docker-compose.yml`
+- [ ] `POST /admin/documents/upload` → file appears in R2 bucket `rag-platform`
+- [ ] `source_url` in n8n payload is the R2 public URL
+- [ ] n8n successfully fetches the file from R2 (document status moves to `completed`)
+- [ ] `DELETE /admin/documents/{id}` removes the object from R2
+- [ ] Local dev still works with `STORAGE_BACKEND=local` (no R2 credentials needed)
 
 ---
 

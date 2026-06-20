@@ -144,9 +144,13 @@ async def upload_document(
 
     # Fire n8n ingestion in the background — returns 202 immediately;
     # n8n calls back to /webhooks/n8n/ingestion-status when processing is done.
-    download_url = f"{settings.APP_BASE_URL}/admin/documents/{doc.id}/download"
+    # R2: store_upload already returned a public CDN URL; local: serve via download endpoint.
+    if settings.STORAGE_BACKEND == "r2":
+        source_url = location
+    else:
+        source_url = f"{settings.APP_BASE_URL}/admin/documents/{doc.id}/download"
     background_tasks.add_task(
-        _trigger_ingest, str(doc.id), str(doc.tenant_id), download_url, doc.source_type, doc.title,
+        _trigger_ingest, str(doc.id), str(doc.tenant_id), source_url, doc.source_type, doc.title,
     )
     return DocumentOut.model_validate(doc)
 

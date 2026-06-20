@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     SLACK_BOT_TOKEN: str = ""
     SLACK_SIGNING_SECRET: str = ""
 
+    # ── Cloudflare R2 (file storage) ─────────────────────────────────
+    R2_ACCOUNT_ID: str = "c248caff93b57e6b28730410a4e34ca3"
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = "rag-platform"
+    R2_PUBLIC_URL: str = "https://pub-a9bb7d7b516244eaacc47d9cab962786.r2.dev"
+
     # ── File upload limits ───────────────────────────────────────────
     UPLOAD_DIR: str = "/uploads"
     STORAGE_BACKEND: str = "local"     # "local" | "gcs" | "s3" — see PLAN_M3 §6
