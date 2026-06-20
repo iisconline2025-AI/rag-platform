@@ -77,5 +77,6 @@ jobs:
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
         run: |
-          npm ci
+          npm ci --no-audit --no-fund
+          npm test
           npm run build
