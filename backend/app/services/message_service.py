@@ -24,6 +24,43 @@ HISTORY_LIMIT = 10
 RESET_CONFIRMATION = "Conversation reset ✓"
 FALLBACK_MESSAGE = "Sorry, something went wrong — please try again."
 
+DEFAULT_TITLE = "New Conversation"
+TITLE_MAX_LEN = 40
+_TITLE_PREFIXES = sorted([
+    "what is", "what are", "what's",
+    "explain", "can you explain", "could you explain",
+    "summarize", "summarise",
+    "tell me about", "describe",
+    "how do i", "how to", "how does",
+], key=len, reverse=True)
+
+
+def _derive_title(query: str) -> str:
+    """Deterministic short title from a user's first query — no LLM call.
+
+    Strips trailing punctuation and a leading question/instruction phrase
+    (e.g. "what is", "summarize"), title-cases the remainder, and caps it at
+    TITLE_MAX_LEN chars on a word boundary.
+    """
+    text_ = query.strip().rstrip("?!.,;: ").strip()
+    if not text_:
+        return DEFAULT_TITLE
+
+    lowered = text_.lower()
+    for prefix in _TITLE_PREFIXES:
+        if lowered.startswith(prefix):
+            text_ = text_[len(prefix):].strip()
+            break
+
+    text_ = text_.rstrip("?!.,;: ").strip()
+    if not text_:
+        return DEFAULT_TITLE
+
+    title = text_.title()
+    if len(title) > TITLE_MAX_LEN:
+        title = title[:TITLE_MAX_LEN].rsplit(" ", 1)[0].rstrip() or title[:TITLE_MAX_LEN]
+    return title
+
 
 class ConversationOwnershipError(Exception):
     """Web: the supplied conversation_id belongs to another user (→ 403)."""
@@ -138,9 +175,9 @@ async def _find_or_create_conversation(ctx: MessageContext, db: AsyncSession) ->
         return
 
     ctx.conversation_id = (await db.execute(
-        text("""INSERT INTO conversations (tenant_id, user_id, channel)
-                VALUES (:tid, :uid, :ch) RETURNING id"""),
-        {"tid": ctx.tenant_id, "uid": ctx.user_id, "ch": ctx.source},
+        text("""INSERT INTO conversations (tenant_id, user_id, channel, title)
+                VALUES (:tid, :uid, :ch, :title) RETURNING id"""),
+        {"tid": ctx.tenant_id, "uid": ctx.user_id, "ch": ctx.source, "title": _derive_title(ctx.query)},
     )).scalar_one()
     await db.commit()
 
