@@ -15,6 +15,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # ── App ──────────────────────────────────────────────────────────
     APP_ENV: str = "development"
+    APP_BASE_URL: str = "http://localhost:8000"  # override to Railway public URL in prod
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
@@ -42,7 +43,7 @@ class Settings(BaseSettings):
 
     # ── n8n ──────────────────────────────────────────────────────────
     N8N_BASE_URL: str = "http://localhost:5678"
-    N8N_INGEST_WEBHOOK_URL: str = "http://localhost:5678/webhook/ingest"
+    N8N_INGEST_WEBHOOK_URL: str = "https://n8n-production-c637.up.railway.app/webhook/ingest"
     N8N_RETRIEVE_WEBHOOK_URL: str = "http://localhost:5678/webhook/retrieve"
     N8N_EPHEMERAL_INGEST_WEBHOOK_URL: str = "http://localhost:5678/webhook/ingest-ephemeral"
     N8N_CALLBACK_TOKEN: str = "change-me-shared-secret-with-n8n"

@@ -221,8 +221,9 @@ Steps:
 6. INSERT `Document(tenant_id, uploaded_by=current_user.id, title=title or file.filename, source_type=<derived from mime>, file_path=location, status="pending")`
 7. INSERT `UploadAudit(tenant_id=current_user.tenant_id, bytes=len(content))`
 8. `await db.commit()`
-9. Call `await n8n_client.ingest(document_id=str(doc.id), tenant_id=str(doc.tenant_id), file_path=location, source_type=doc.source_type, title=doc.title)` — `location` is passed as `file_path`; n8n reads a local path or fetches a cloud URL transparently
-10. Return `DocumentOut.model_validate(doc)` with status 202
+9. Construct `source_url = f"{settings.APP_BASE_URL}/admin/documents/{doc.id}/download"` — a URL n8n can fetch from (works both locally and on Railway since APP_BASE_URL is set per environment)
+10. Call `await n8n_client.ingest(document_id=str(doc.id), tenant_id=str(doc.tenant_id), source_url=source_url, source_type=doc.source_type, title=doc.title)`
+11. Return `DocumentOut.model_validate(doc)` with status 202
 
 MIME → `source_type` mapping:
 | MIME | source_type |
@@ -241,8 +242,22 @@ Steps:
 1. Validate body (Pydantic handles this)
 2. INSERT `Document(tenant_id, uploaded_by=current_user.id, title=body.title or body.url, source_type="url", source_url=body.url, status="pending")`
 3. `await db.commit()`
-4. Call `await n8n_client.ingest(document_id=str(doc.id), tenant_id=str(doc.tenant_id), file_path=body.url, source_type="url", title=doc.title)`
+4. Call `await n8n_client.ingest(document_id=str(doc.id), tenant_id=str(doc.tenant_id), source_url=body.url, source_type="url", title=doc.title)`
 5. Return `DocumentOut.model_validate(doc)` with status 202
+
+---
+
+#### `GET /admin/documents/{document_id}/download`
+
+Public endpoint (no auth) so n8n can fetch uploaded files by document ID. Serves the raw file bytes with the correct `Content-Type`. Document IDs are UUIDs — not guessable.
+
+Steps:
+1. `db.get(Document, document_id)` — 404 if `None`
+2. Read `doc.file_path` — 404 if null (URL-ingested docs have no stored file)
+3. `Path(doc.file_path).read_bytes()` — 404 if file missing on disk
+4. Return `Response(content=bytes, media_type=<inferred from source_type>)`
+
+> When cloud storage is adopted, this endpoint reads from GCS/S3 instead of local disk — no n8n changes needed.
 
 ---
 
@@ -361,35 +376,34 @@ These were verified against the existing codebase and confirmed before implement
 
 ## 6. [TODO] Cloud Storage Backend Extension
 
-> **Status: Not started. Implement after local path is tested and verified.**
+> **Status: Not started. Current approach (FastAPI download endpoint) is sufficient for Railway deployment.**
 
 The `storage.py` abstraction is designed so that moving from local disk to cloud
 storage requires changes in exactly one place: the `store_upload()` and
 `delete_upload()` functions in `backend/app/services/storage.py`.
 
-### Why this is needed
+### Current approach (Railway deployment)
 
-FastAPI and n8n run as separate services (separate containers / Railway
-instances). In Docker Compose they share a volume mount today. In a cloud
-deployment they have isolated filesystems — n8n cannot read `/uploads` from
-the FastAPI container. The fix is to put the file in a location both services
-can reach: a cloud storage bucket.
-
-### Handover mechanism
-
-The `file_path` field in the n8n ingest webhook payload is already the
-abstraction point:
+FastAPI and n8n run as separate Railway services with isolated filesystems.
+The handover mechanism is `source_url` — n8n always fetches the file via HTTP:
 
 ```
-Local (today):  file_path = "/uploads/abc_manual.pdf"
-                n8n reads from shared Docker volume
+File upload:  source_url = "https://<APP_BASE_URL>/admin/documents/{id}/download"
+              n8n GETs the file from FastAPI's download endpoint
 
-Cloud (future): file_path = "https://storage.googleapis.com/iisc-rag/abc_manual.pdf"
-                n8n does an HTTP GET to fetch the file
+URL ingest:   source_url = "https://en.wikipedia.org/wiki/..."
+              n8n fetches directly from the web
 ```
 
-`n8n_client.ingest()`, `admin.py`, and the `Document` ORM model all stay the
-same. Only `storage.py` changes.
+`GET /admin/documents/{id}/download` serves the stored file from local disk.
+This works on Railway since FastAPI's own public URL is reachable by n8n.
+
+### Why cloud storage may be needed later
+
+Railway's filesystem is ephemeral — files written to disk do not survive
+redeploys. If uploaded files need to outlive the container, they must be stored
+in a persistent external bucket (GCS or S3). The `source_url` contract with
+n8n stays the same; only `storage.py` and the download endpoint change.
 
 ### What to implement when ready
 

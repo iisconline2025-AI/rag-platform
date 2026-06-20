@@ -39,21 +39,21 @@ MOCK_RETRIEVE_RESPONSE = {
 async def ingest(
     document_id: str,
     tenant_id: str,
-    file_path: str,
+    source_url: str,
     source_type: str,
     title: str,
 ) -> dict:
     """Trigger n8n ingestion workflow."""
     if settings.MOCK_N8N:
-        logger.info(f"[MOCK] Ingestion triggered for {document_id}")
+        logger.info("[MOCK] Ingestion triggered for %s", document_id)
         return {"status": "mock_started"}
 
     payload = {
         "document_id": document_id,
-        "tenant_id": tenant_id,
-        "file_path": file_path,
+        "tenant_id":   tenant_id,
         "source_type": source_type,
-        "title": title,
+        "source_url":  source_url,
+        "title":       title,
     }
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(settings.N8N_INGEST_WEBHOOK_URL, json=payload)

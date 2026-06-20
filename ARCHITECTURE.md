@@ -72,9 +72,9 @@ flowchart TB
     subgraph Admin["Admin Persistent Upload"]
         A1[Admin uploads PDF<br/>≤ 25 MB] --> A2[POST /admin/documents/upload]
         A2 --> A3[FastAPI: validate MIME + magic bytes<br/>+ tenant quota check]
-        A3 --> A4[Save to /uploads]
-        A4 --> A5[Trigger n8n /webhook/ingest]
-        A5 --> A6[Chunks land in<br/>document_chunks]
+        A3 --> A4[Save to UPLOAD_DIR<br/>INSERT Document row]
+        A4 --> A5[Trigger n8n /webhook/ingest<br/>source_url = APP_BASE_URL/admin/documents/id/download]
+        A5 --> A6[n8n fetches file via source_url<br/>Chunks land in document_chunks]
         A6 --> A7[Available to ALL users<br/>in tenant FOREVER]
     end
 
@@ -178,12 +178,16 @@ No Redis. JWT is stateless; rate-limit is in-process slowapi.
 {
   "document_id": "uuid",
   "tenant_id": "uuid",
-  "file_path": "/uploads/filename.pdf",
   "source_type": "pdf",
-  "title": "Document title",
-  "callback_token": "<settings.N8N_CALLBACK_TOKEN>"
+  "source_url": "https://<api-host>/admin/documents/<id>/download",
+  "title": "Document title"
 }
 ```
+`source_url` is always a URL reachable by n8n:
+- **File uploads**: `https://<APP_BASE_URL>/admin/documents/{id}/download` — FastAPI serves the stored file via a public download endpoint
+- **URL ingestion**: the original URL passed by the admin (e.g. `https://en.wikipedia.org/wiki/...`)
+
+> **Note**: `callback_token` is NOT sent in the ingest trigger. n8n sends it back to FastAPI in the ingestion-status callback so FastAPI can authenticate the result.
 
 ### POST `/webhook/ingest-ephemeral` (FastAPI → n8n)
 ```json
