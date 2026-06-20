@@ -15,14 +15,15 @@ export default function CitationsPanel({ sources }: CitationsPanelProps) {
   }
 
   return (
-    <div className="mt-2 rounded-md border border-slate-200 bg-white">
+    <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
         className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
       >
-        <span>
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden="true">📄</span>
           {sources.length} {sources.length === 1 ? 'source' : 'sources'}
         </span>
         <svg
@@ -38,18 +39,22 @@ export default function CitationsPanel({ sources }: CitationsPanelProps) {
       </button>
 
       {open && (
-        <ul className="divide-y divide-slate-100 border-t border-slate-100">
+        <div className="flex flex-col gap-2 border-t border-slate-100 bg-slate-50/60 p-2">
           {sources.map((source, index) => (
-            <li key={`${source.document_id}-${index}`} className="px-3 py-2">
-              <p className="text-xs font-medium text-slate-700">
-                {source.title}
-                {source.page_number !== null && <span className="text-slate-400"> · p.{source.page_number}</span>}
-                <span className="ml-1 text-slate-400">· score {source.score.toFixed(2)}</span>
+            <div key={`${source.document_id}-${index}`} className="rounded-md border border-slate-200 bg-white p-3">
+              <p className="flex flex-wrap items-baseline gap-1 text-xs font-medium text-slate-700">
+                <span>Source {index + 1}</span>
+                <span className="text-slate-400">·</span>
+                <span>{source.title}</span>
+                {source.page_number !== null && <span className="text-slate-400">p.{source.page_number}</span>}
+                <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                  score {source.score.toFixed(2)}
+                </span>
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">{source.chunk_text}</p>
-            </li>
+              <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{source.chunk_text}</p>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

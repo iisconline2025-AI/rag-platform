@@ -52,9 +52,11 @@ export default function ConversationList({ activeConversationId }: ConversationL
       </div>
 
       {isLoading && <p className="px-4 text-xs text-slate-400">Loading conversations…</p>}
-      {!isLoading && hasError && <p className="px-4 text-xs text-red-500">Couldn&apos;t load conversations.</p>}
+      {!isLoading && hasError && (
+        <p className="px-4 text-xs text-slate-400">We couldn&apos;t load your conversations. Please try again shortly.</p>
+      )}
       {!isLoading && !hasError && conversations.length === 0 && (
-        <p className="px-4 text-xs text-slate-400">No conversations yet</p>
+        <p className="px-4 text-xs text-slate-400">Your conversations will appear here.</p>
       )}
 
       {!isLoading && !hasError && conversations.length > 0 && (

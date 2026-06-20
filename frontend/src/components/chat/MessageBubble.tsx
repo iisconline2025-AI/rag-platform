@@ -40,34 +40,37 @@ const markdownComponents: Components = {
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
 
-  return (
-    <div className="flex flex-col gap-2">
-      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-        <div
-          className={[
-            'max-w-[75%] break-words rounded-lg px-4 py-2 text-sm',
-            isUser
-              ? 'whitespace-pre-wrap bg-indigo-600 text-white'
-              : 'border border-slate-200 bg-white text-slate-800',
-          ].join(' ')}
-        >
-          {isUser ? (
-            message.content
-          ) : (
-            <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
-              {message.content}
-            </ReactMarkdown>
-          )}
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[75%] whitespace-pre-wrap break-words rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm text-white">
+          {message.content}
         </div>
       </div>
+    );
+  }
 
-      {!isUser && (
-        <div className="flex max-w-[75%] flex-col gap-2 pl-1">
+  return (
+    <div className="flex items-start gap-3">
+      <div
+        aria-hidden="true"
+        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-semibold text-indigo-600"
+      >
+        AI
+      </div>
+      <div className="flex max-w-[80%] flex-1 flex-col gap-2">
+        <span className="text-xs font-medium text-slate-400">Assistant</span>
+        <div className="break-words rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-800 shadow-sm">
+          <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
+            {message.content}
+          </ReactMarkdown>
+        </div>
+        <div className="flex flex-col gap-2">
           <ClarificationBanner requiresClarification={message.requires_clarification} />
           <FaithfulnessBadge score={message.faithfulness} />
           <CitationsPanel sources={message.sources} />
         </div>
-      )}
+      </div>
     </div>
   );
 }

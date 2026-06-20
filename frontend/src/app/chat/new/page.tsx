@@ -84,10 +84,10 @@ export default function NewChatPage() {
     <ChatAuthGuard>
       <ChatLayout conversationId={conversationId ?? undefined}>
         <div className="flex flex-1 flex-col">
-          {hasMessages ? <MessageList messages={messages} /> : <ChatEmptyState />}
+          {hasMessages ? <MessageList messages={messages} /> : <ChatEmptyState onSelectPrompt={handleSend} />}
 
           {lastResponse && hasMessages && (
-            <div className="px-4 pb-3">
+            <div className="-mt-1 px-4 pb-4">
               <FollowUpChips questions={lastResponse.follow_up_questions} onSelect={handleSend} />
             </div>
           )}
