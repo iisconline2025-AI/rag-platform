@@ -27,6 +27,7 @@ except ModuleNotFoundError:
 
 
 LOGGER = logging.getLogger("rag_evaluation")
+FAILED_CASES: list[str] = []  # case ids skipped due to persistent upstream failures
 ROOT = Path(__file__).resolve().parent
 DEFAULT_RESULTS_DIR = ROOT.parent / "artifacts" / "evaluation_results"
 METRIC_NAMES = (
@@ -107,11 +108,42 @@ async def collect_system_outputs(
 
         for position, case in enumerate(cases, start=1):
             started = time.perf_counter()
-            response = await client.post(
-                "/chat/query",
-                headers=headers,
-                json={"query": case["question"], "max_chunks": 5},
-            )
+            last_exc: Exception | None = None
+            response = None
+            backoffs = [5, 15, 30, 45, 60]
+            for attempt in range(len(backoffs) + 1):
+                try:
+                    response = await client.post(
+                        "/chat/query",
+                        headers=headers,
+                        json={"query": case["question"], "max_chunks": 5},
+                    )
+                    if response.status_code >= 500:
+                        raise httpx.HTTPStatusError(
+                            f"server {response.status_code}",
+                            request=response.request,
+                            response=response,
+                        )
+                    break
+                except (httpx.HTTPError,) as exc:
+                    last_exc = exc
+                    if attempt >= len(backoffs):
+                        break
+                    LOGGER.warning(
+                        "%s attempt %s failed (%s); retrying in %ss",
+                        case["id"], attempt + 1, exc, backoffs[attempt],
+                    )
+                    await asyncio.sleep(backoffs[attempt])
+            if response is None or response.status_code >= 500:
+                # Persistent upstream (n8n/LLM) failure after all retries: skip this
+                # case so one flaky upstream window cannot abort the whole run. These
+                # are recorded as infrastructure failures, not model-quality signal.
+                FAILED_CASES.append(case["id"])
+                LOGGER.error(
+                    "%s SKIPPED after retries (%s)",
+                    case["id"], last_exc or (response.status_code if response else "no response"),
+                )
+                continue
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
             response.raise_for_status()
             payload = response.json()
@@ -156,6 +188,7 @@ async def collect_system_outputs(
                 }
             )
             LOGGER.info("Collected %s/%s: %s", position, len(cases), case["id"])
+            await asyncio.sleep(1.5)  # pace requests to avoid upstream LLM rate limits
     return outputs
 
 
@@ -168,6 +201,9 @@ def run_ragas(outputs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
     try:
         from datasets import Dataset
         from ragas import evaluate
+        from ragas.llms import LangchainLLMWrapper
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from langchain_openai import ChatOpenAI, OpenAIEmbeddings
         from ragas.metrics import (
             answer_relevancy,
             context_precision,
@@ -178,6 +214,19 @@ def run_ragas(outputs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
         raise RuntimeError(
             "Evaluation dependencies are missing. Install evaluation/requirements.txt."
         ) from exc
+
+    # RAGAS 0.1.10's executor reuses the running event loop; allow nested loops.
+    import nest_asyncio
+    nest_asyncio.apply()
+
+    # Bind the independent judge LLM + embeddings explicitly. The pinned RAGAS 0.1.10
+    # default binding is unreliable on this langchain version ("LLM is not set").
+    judge_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini", temperature=0))
+    judge_emb = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-3-small"))
+    for _m in (faithfulness, answer_relevancy, context_precision, context_recall):
+        _m.llm = judge_llm
+        if hasattr(_m, "embeddings"):
+            _m.embeddings = judge_emb
 
     answerable = [row for row in outputs if row["answerable"]]
     if not answerable:
@@ -194,6 +243,8 @@ def run_ragas(outputs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
     result = evaluate(
         dataset,
         metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+        llm=judge_llm,
+        embeddings=judge_emb,
         raise_exceptions=False,
     )
     frame = result.to_pandas()
@@ -356,15 +407,28 @@ async def async_main(args: argparse.Namespace) -> int:
         cases = [case for case in cases if case["application"] in requested]
     if args.max_cases:
         cases = cases[: args.max_cases]
-    outputs = await collect_system_outputs(
-        cases,
-        base_url=args.base_url,
-        token=args.token,
-        email=args.email,
-        password=args.password,
-        timeout=args.timeout,
-        allow_mock=args.allow_mock,
-    )
+    if args.from_outputs:
+        outputs = json.loads(Path(args.from_outputs).read_text())
+        LOGGER.info("Loaded %s collected outputs from %s", len(outputs), args.from_outputs)
+    else:
+        outputs = await collect_system_outputs(
+            cases,
+            base_url=args.base_url,
+            token=args.token,
+            email=args.email,
+            password=args.password,
+            timeout=args.timeout,
+            allow_mock=args.allow_mock,
+        )
+        # Persist raw collected outputs immediately so a scoring failure never wastes
+        # the (slow) collection run; re-score with --from-outputs.
+        args.results_dir.mkdir(parents=True, exist_ok=True)
+        dump_path = args.results_dir / "collected_outputs_latest.json"
+        dump_path.write_text(json.dumps(outputs, indent=1))
+        LOGGER.info("Persisted %s collected outputs to %s", len(outputs), dump_path)
+        if FAILED_CASES:
+            LOGGER.warning("Skipped %s cases (upstream failures): %s",
+                           len(FAILED_CASES), ", ".join(FAILED_CASES))
 
     scored_rows: list[dict[str, Any]] | None = None
     ragas_summary: dict[str, float] | None = None
@@ -409,6 +473,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-cases", type=int)
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--skip-ragas", action="store_true")
+    parser.add_argument("--from-outputs", type=Path, default=None,
+                        help="Score from a previously persisted collected_outputs JSON (skips collection).")
     parser.add_argument("--allow-mock", action="store_true")
     parser.add_argument("--strict-dataset", action="store_true")
     parser.add_argument("--suite-dataset", action="store_true")
