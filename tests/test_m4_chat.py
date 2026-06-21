@@ -185,5 +185,32 @@ async def test_existing_conversation_title_not_overwritten(client, web_user, mon
     assert title == "My Custom Title"
 
 
+async def test_conversation_history_passed_to_pipeline(client, web_user, monkeypatch):
+    """Step 5 (_load_history) feeds prior turns into the shared pipeline call payload."""
+    monkeypatch.setattr(pipeline_client, "call_pipeline", _mock_pipeline)
+    r1 = await client.post("/chat/query", json={"query": "first question"},
+                          headers={"Authorization": f"Bearer {web_user['token']}"})
+    conversation_id = r1.json()["conversation_id"]
+
+    captured = {}
+
+    async def capture_pipeline(payload):
+        captured.update(payload)
+        return {"answer": "second answer", "sources": [], "follow_up_questions": []}
+
+    monkeypatch.setattr(pipeline_client, "call_pipeline", capture_pipeline)
+    r2 = await client.post(
+        "/chat/query",
+        json={"query": "second question", "conversation_id": conversation_id},
+        headers={"Authorization": f"Bearer {web_user['token']}"},
+    )
+    assert r2.status_code == 200, r2.text
+
+    assert captured["history"] == [
+        {"role": "user", "content": "first question"},
+        {"role": "assistant", "content": "mock answer"},
+    ]
+
+
 async def _mock_pipeline(payload):
     return {"answer": "mock answer", "sources": [], "follow_up_questions": []}

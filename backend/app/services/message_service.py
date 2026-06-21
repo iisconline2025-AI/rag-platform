@@ -9,6 +9,7 @@ column are accessed via raw SQL — no ORM model changes (see migration 0002_m4_
 """
 import json
 import logging
+from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,6 +109,9 @@ async def process_message(ctx: MessageContext, db: AsyncSession) -> dict:
 
 async def _resolve_identity(ctx: MessageContext, db: AsyncSession) -> None:
     """Step 2 — web is already resolved from JWT; Slack maps team + user via raw SQL."""
+    if ctx.user_id is not None and ctx.tenant_id is not None:
+        return  # already resolved (e.g. WhatsApp pre-resolves before media handling)
+
     if ctx.source == "slack":
         row = (await db.execute(text("""
             SELECT u.id AS user_id, m.tenant_id AS tenant_id
@@ -223,13 +227,19 @@ async def _load_history(ctx: MessageContext, db: AsyncSession) -> list[dict]:
 async def _save_messages(
     ctx: MessageContext, db: AsyncSession, query: str, answer: str, sources: list
 ) -> None:
-    """Step 8 — persist user + assistant rows in a single transaction."""
+    """Step 8 — persist user + assistant rows in a single transaction.
+
+    created_at is set explicitly rather than left to the column's `now()`
+    default: Postgres's `now()` is transaction-scoped, so both rows in this
+    same transaction would otherwise get an identical timestamp, making
+    _load_history's `ORDER BY created_at` non-deterministic between them.
+    """
     await db.execute(text("""
-        INSERT INTO chat_messages (conversation_id, role, content, sources)
-        VALUES (:cid, 'user', :content, CAST(:sources AS JSONB))
-    """), {"cid": ctx.conversation_id, "content": query, "sources": "[]"})
+        INSERT INTO chat_messages (conversation_id, role, content, sources, created_at)
+        VALUES (:cid, 'user', :content, CAST(:sources AS JSONB), :ts)
+    """), {"cid": ctx.conversation_id, "content": query, "sources": "[]", "ts": datetime.utcnow()})
     await db.execute(text("""
-        INSERT INTO chat_messages (conversation_id, role, content, sources)
-        VALUES (:cid, 'assistant', :content, CAST(:sources AS JSONB))
-    """), {"cid": ctx.conversation_id, "content": answer, "sources": json.dumps(sources)})
+        INSERT INTO chat_messages (conversation_id, role, content, sources, created_at)
+        VALUES (:cid, 'assistant', :content, CAST(:sources AS JSONB), :ts)
+    """), {"cid": ctx.conversation_id, "content": answer, "sources": json.dumps(sources), "ts": datetime.utcnow()})
     await db.commit()
