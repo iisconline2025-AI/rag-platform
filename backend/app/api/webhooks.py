@@ -115,7 +115,7 @@ async def _process_whatsapp_message(
             query_lower = (query or "").strip().lower()
 
             # ── Ephemeral commands ────────────────────────────────────────────
-            if query_lower == "/ephemeral_ingest":
+            if query_lower == "/askdoc":
                 if session:
                     await whatsapp.post_text(from_number,
                         "⚠️ Already in ephemeral mode. /end_session to exit first.")
