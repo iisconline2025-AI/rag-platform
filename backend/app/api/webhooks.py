@@ -55,7 +55,7 @@ async def _handle_whatsapp_media(
     """Download, validate, and ingest ephemeral media from WhatsApp."""
     try:
         # Download with Twilio auth
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             resp = await client.get(
                 media_url,
                 auth=(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
