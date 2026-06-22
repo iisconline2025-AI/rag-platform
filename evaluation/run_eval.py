@@ -9,6 +9,7 @@ import math
 import os
 import statistics
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,39 @@ def _percentile(values: list[float], percentile: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * percentile)))
     return ordered[index]
+
+
+def select_batch(
+    cases: list[dict[str, Any]],
+    *,
+    batch_size: int | None,
+    batch_index: int | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if batch_size is None and batch_index is None:
+        return cases, None
+    if batch_size is None or batch_index is None:
+        raise ValueError("--batch-size and --batch-index must be used together")
+    if batch_size <= 0:
+        raise ValueError("--batch-size must be greater than 0")
+    if batch_index <= 0:
+        raise ValueError("--batch-index is 1-based and must be greater than 0")
+
+    total_cases = len(cases)
+    total_batches = (total_cases + batch_size - 1) // batch_size
+    if batch_index > total_batches:
+        raise ValueError(
+            f"--batch-index {batch_index} exceeds total batches {total_batches}"
+        )
+    start = (batch_index - 1) * batch_size
+    end = min(start + batch_size, total_cases)
+    return cases[start:end], {
+        "batch_index": batch_index,
+        "batch_size": batch_size,
+        "total_batches": total_batches,
+        "total_cases_before_batching": total_cases,
+        "start_position": start + 1,
+        "end_position": end,
+    }
 
 
 def _is_mock_response(payload: dict[str, Any]) -> bool:
@@ -184,6 +218,28 @@ def _normalise_direct_n8n_response(payload: Any) -> dict[str, Any]:
     return response
 
 
+def _decode_db_sources(value: Any) -> list[dict[str, Any]]:
+    """Decode chat_messages.sources from JSONB/text and normalize source objects."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+
+    sources: list[dict[str, Any]] = []
+    for index, source in enumerate(value, start=1):
+        normalised = _normalise_source(source, index)
+        if normalised is not None:
+            sources.append(normalised)
+    return sources
+
+
 def _validate_chat_response(payload: Any) -> list[str]:
     errors: list[str] = []
     if not isinstance(payload, dict):
@@ -195,6 +251,17 @@ def _validate_chat_response(payload: Any) -> list[str]:
     if "follow_up_questions" in payload and not isinstance(payload["follow_up_questions"], list):
         errors.append("follow_up_questions must be a list")
     return errors
+
+
+def _source_observability(sources: list[Any], response_metadata: dict[str, Any]) -> dict[str, Any]:
+    source_count = len(sources)
+    metadata_keys = sorted(str(key) for key in response_metadata.keys())
+    return {
+        "source_count": source_count,
+        "has_sources": source_count > 0,
+        "metadata_key_count": len(metadata_keys),
+        "metadata_keys": metadata_keys,
+    }
 
 
 async def _get_token(
@@ -267,6 +334,8 @@ async def collect_system_outputs(
             expected_documents = [
                 source["document"] for source in case.get("expected_sources", [])
             ]
+            response_metadata = payload.get("metadata", {})
+            observability = _source_observability(sources, response_metadata)
             outputs.append(
                 {
                     **case,
@@ -277,7 +346,9 @@ async def collect_system_outputs(
                     "system_faithfulness": payload.get("faithfulness"),
                     "requires_clarification": payload.get("requires_clarification", False),
                     "latency_ms": latency_ms,
-                    "response_metadata": payload.get("metadata", {}),
+                    "source_count": observability["source_count"],
+                    "observability": observability,
+                    "response_metadata": response_metadata,
                 }
             )
             LOGGER.info("Collected %s/%s: %s", position, len(cases), case["id"])
@@ -293,6 +364,7 @@ async def collect_direct_n8n_outputs(
     timeout: float,
     allow_mock: bool,
     max_chunks: int,
+    retries: int,
 ) -> list[dict[str, Any]]:
     outputs: list[dict[str, Any]] = []
     headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -302,6 +374,10 @@ async def collect_direct_n8n_outputs(
                 "Query": case["question"],
                 "query": case["question"],
                 "question": case["question"],
+                "current_message": case["question"],
+                "history": [],
+                "request_id": case["id"],
+                "conversation_id": str(uuid.uuid5(uuid.NAMESPACE_URL, case["id"])),
                 "tenant_id": tenant_id,
                 "case_id": case["id"],
                 "application": case["application"],
@@ -309,16 +385,70 @@ async def collect_direct_n8n_outputs(
                 "max_chunks": max_chunks,
                 "expected_sources": case.get("expected_sources", []),
             }
-            started = time.perf_counter()
-            response = await client.post(n8n_url, headers=headers, json=payload)
-            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            raw_payload: Any | None = None
+            attempts_used = 0
+            retry_count = 0
+            for attempt in range(retries + 1):
+                attempts_used = attempt + 1
+                started = time.perf_counter()
+                try:
+                    response = await client.post(n8n_url, headers=headers, json=payload)
+                    latency_ms = round((time.perf_counter() - started) * 1000, 2)
+                    if response.status_code in {408, 429} or response.status_code >= 500:
+                        if attempt >= retries:
+                            break
+                        wait_seconds = min(5 * (attempt + 1), 30)
+                        LOGGER.warning(
+                            "%s n8n attempt %s/%s returned HTTP %s; retrying in %ss",
+                            case["id"],
+                            attempt + 1,
+                            retries + 1,
+                            response.status_code,
+                            wait_seconds,
+                        )
+                        retry_count += 1
+                        await asyncio.sleep(wait_seconds)
+                        continue
+                    try:
+                        raw_payload = response.json()
+                    except ValueError as exc:
+                        if attempt >= retries:
+                            raise RuntimeError(
+                                f"{case['id']} returned non-JSON n8n response"
+                            ) from exc
+                        wait_seconds = min(5 * (attempt + 1), 30)
+                        LOGGER.warning(
+                            "%s n8n attempt %s/%s returned non-JSON body; retrying in %ss",
+                            case["id"],
+                            attempt + 1,
+                            retries + 1,
+                            wait_seconds,
+                        )
+                        retry_count += 1
+                        await asyncio.sleep(wait_seconds)
+                        continue
+                    break
+                except httpx.RequestError as exc:
+                    if attempt >= retries:
+                        raise RuntimeError(
+                            f"{case['id']} failed after {retries + 1} n8n attempts"
+                        ) from exc
+                    wait_seconds = min(5 * (attempt + 1), 30)
+                    LOGGER.warning(
+                        "%s n8n attempt %s/%s failed: %s; retrying in %ss",
+                        case["id"],
+                        attempt + 1,
+                        retries + 1,
+                        exc.__class__.__name__,
+                        wait_seconds,
+                    )
+                    retry_count += 1
+                    await asyncio.sleep(wait_seconds)
             response.raise_for_status()
-            try:
-                raw_payload = response.json()
-            except ValueError as exc:
+            if raw_payload is None:
                 raise RuntimeError(
                     f"{case['id']} returned non-JSON n8n response"
-                ) from exc
+                )
             normalised = _normalise_direct_n8n_response(raw_payload)
             response_errors = _validate_chat_response(normalised)
             if response_errors:
@@ -333,6 +463,17 @@ async def collect_direct_n8n_outputs(
                 )
 
             sources = normalised["sources"]
+            response_metadata = {
+                **normalised.get("metadata", {}),
+                "evaluation_target": "direct_n8n",
+                "n8n_attempts": attempts_used,
+                "n8n_retry_count": retry_count,
+            }
+            observability = {
+                **_source_observability(sources, response_metadata),
+                "n8n_attempts": attempts_used,
+                "n8n_retry_count": retry_count,
+            }
             outputs.append(
                 {
                     **case,
@@ -345,10 +486,9 @@ async def collect_direct_n8n_outputs(
                     "system_faithfulness": normalised.get("faithfulness"),
                     "requires_clarification": normalised.get("requires_clarification", False),
                     "latency_ms": latency_ms,
-                    "response_metadata": {
-                        **normalised.get("metadata", {}),
-                        "evaluation_target": "direct_n8n",
-                    },
+                    "source_count": observability["source_count"],
+                    "observability": observability,
+                    "response_metadata": response_metadata,
                 }
             )
             LOGGER.info("Collected %s/%s via n8n: %s", position, len(cases), case["id"])
@@ -362,6 +502,7 @@ def run_ragas(outputs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
             "This key is used for independent judging, not by the system under test."
         )
     try:
+        import nest_asyncio
         from datasets import Dataset
         from ragas import evaluate
         from ragas.metrics import (
@@ -375,6 +516,7 @@ def run_ragas(outputs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
             "Evaluation dependencies are missing. Install evaluation/requirements.txt."
         ) from exc
 
+    nest_asyncio.apply()
     answerable = [row for row in outputs if row["answerable"]]
     if not answerable:
         raise RuntimeError("No answerable cases are available for RAGAS scoring")
@@ -442,6 +584,23 @@ def build_summary(
         if negatives
         else 0.0
     )
+    source_counts = [
+        int(row.get("source_count") or len(row.get("contexts") or []))
+        for row in outputs
+    ]
+    observability_rows = [
+        row.get("observability")
+        for row in outputs
+        if isinstance(row.get("observability"), dict)
+    ]
+    retry_counts = [
+        int(obs.get("n8n_retry_count", 0))
+        for obs in observability_rows
+    ]
+    attempts = [
+        int(obs.get("n8n_attempts", 1))
+        for obs in observability_rows
+    ]
     return {
         "case_count": len(outputs),
         "answerable_case_count": len(answerable),
@@ -452,6 +611,24 @@ def build_summary(
             "mean": statistics.fmean(latencies) if latencies else 0.0,
             "p95": _percentile(latencies, 0.95),
             "max": max(latencies, default=0.0),
+        },
+        "observability": {
+            "source_return_rate": (
+                sum(count > 0 for count in source_counts) / len(source_counts)
+                if source_counts
+                else 0.0
+            ),
+            "average_sources_per_case": (
+                statistics.fmean(source_counts) if source_counts else 0.0
+            ),
+            "metadata_coverage": (
+                sum(bool(obs.get("metadata_key_count")) for obs in observability_rows)
+                / len(outputs)
+                if outputs
+                else 0.0
+            ),
+            "total_retry_count": sum(retry_counts),
+            "max_attempts": max(attempts, default=1),
         },
         "ragas": ragas_summary,
     }
@@ -552,6 +729,15 @@ async def async_main(args: argparse.Namespace) -> int:
         cases = [case for case in cases if case["application"] in requested]
     if args.max_cases:
         cases = cases[: args.max_cases]
+    try:
+        cases, batch_info = select_batch(
+            cases,
+            batch_size=args.batch_size,
+            batch_index=args.batch_index,
+        )
+    except ValueError as exc:
+        LOGGER.error(str(exc))
+        return 2
     if args.n8n_url:
         outputs = await collect_direct_n8n_outputs(
             cases,
@@ -561,6 +747,7 @@ async def async_main(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             allow_mock=args.allow_mock,
             max_chunks=args.max_chunks_per_query,
+            retries=args.n8n_retries,
         )
     else:
         outputs = await collect_system_outputs(
@@ -579,6 +766,8 @@ async def async_main(args: argparse.Namespace) -> int:
         scored_rows, ragas_summary = run_ragas(outputs)
 
     summary = build_summary(outputs, ragas_summary)
+    if batch_info is not None:
+        summary["batch"] = batch_info
     thresholds = {
         "faithfulness": args.min_faithfulness,
         "answer_relevancy": args.min_answer_relevancy,
@@ -614,6 +803,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--password", default=os.getenv("EVAL_PASSWORD"))
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--max-cases", type=int)
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument(
+        "--batch-index",
+        type=int,
+        help="1-based batch number to run with --batch-size.",
+    )
     parser.add_argument("--max-chunks-per-query", type=int, default=5)
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument(
@@ -623,6 +818,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n8n-token", default=os.getenv("EVAL_N8N_BEARER_TOKEN"))
     parser.add_argument("--n8n-tenant-id", default=os.getenv("EVAL_TENANT_ID"))
+    parser.add_argument("--n8n-retries", type=int, default=2)
     parser.add_argument("--skip-ragas", action="store_true")
     parser.add_argument("--allow-mock", action="store_true")
     parser.add_argument("--strict-dataset", action="store_true")

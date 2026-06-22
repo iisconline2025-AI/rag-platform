@@ -243,3 +243,27 @@ This log records visible conversation and workspace actions from this thread. It
 - Verified `python -m json.tool n8n-workflows/retrieval-pipeline.json` succeeds.
 - Verified `python -m unittest tests.test_evaluation_dataset` passes with 12 tests.
 - Created `artifacts/evaluation_results/full_evaluation_report_20260620.md` documenting methodology, test cases, results, artifacts, limitations, and follow-up.
+
+## 2026-06-21 - Batched public evaluation and observability report
+
+- User requested breaking up test cases, adding an observability parameter, consolidating tests, and generating a PDF report.
+- Implemented deterministic evaluator batching with `--batch-size` and `--batch-index`.
+- Added direct n8n observability fields and summary aggregation.
+- Verified evaluator unit tests and a five-case public Railway smoke batch.
+- Generated consolidated report artifacts under `artifacts/evaluation_results`.
+
+## 2026-06-21 - Full public Railway batch run
+
+- User requested running all test cases in batches and generating a PDF report.
+- Ran the public Railway n8n webhook evaluation across 30 deterministic batches of 5 cases.
+- Completed all 148 test cases with 148 unique case IDs and no failed batches.
+- Consolidated all batch JSON files into JSON, CSV, Markdown, HTML, and PDF artifacts.
+- RAGAS scoring was skipped for this full public pass because `OPENAI_API_KEY` was not present in the runtime environment.
+
+## 2026-06-22 - Public RAGAS scoring attempt
+
+- User provided an OpenAI judge key and requested complete RAGAS scoring.
+- Launched RAGAS over the previously consolidated 148-case public Railway evaluation output.
+- RAGAS processed all 528 internal metric tasks for 132 answerable cases.
+- OpenAI judge calls returned `insufficient_quota`, so all RAGAS metric scores were null/NaN.
+- Generated JSON, CSV, Markdown, and PDF artifacts documenting the attempted run and quota blocker.

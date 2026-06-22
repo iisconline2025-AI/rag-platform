@@ -17,6 +17,7 @@ from evaluation.run_eval import (
     build_application_summaries,
     build_quality_gate,
     build_summary,
+    select_batch,
 )
 from evaluation.validate_dataset import validate_dataset
 
@@ -183,6 +184,8 @@ class EvaluationDatasetTests(unittest.TestCase):
             {
                 "answerable": True,
                 "contexts": ["retrieved context"],
+                "source_count": 1,
+                "observability": {"metadata_key_count": 2, "n8n_retry_count": 1, "n8n_attempts": 2},
                 "requires_clarification": False,
                 "answer": "Grounded answer",
                 "latency_ms": 100.0,
@@ -190,6 +193,8 @@ class EvaluationDatasetTests(unittest.TestCase):
             {
                 "answerable": False,
                 "contexts": [],
+                "source_count": 0,
+                "observability": {"metadata_key_count": 0, "n8n_retry_count": 0, "n8n_attempts": 1},
                 "requires_clarification": True,
                 "answer": "I need more information.",
                 "latency_ms": 300.0,
@@ -202,6 +207,22 @@ class EvaluationDatasetTests(unittest.TestCase):
         self.assertEqual(summary["negative_abstention_rate"], 1.0)
         self.assertEqual(summary["latency_ms"]["mean"], 200.0)
         self.assertEqual(summary["ragas"]["faithfulness"], 0.9)
+        self.assertEqual(summary["observability"]["source_return_rate"], 0.5)
+        self.assertEqual(summary["observability"]["average_sources_per_case"], 0.5)
+        self.assertEqual(summary["observability"]["metadata_coverage"], 0.5)
+        self.assertEqual(summary["observability"]["total_retry_count"], 1)
+        self.assertEqual(summary["observability"]["max_attempts"], 2)
+
+    def test_select_batch_uses_one_based_indices(self) -> None:
+        cases = [{"id": f"case-{index}"} for index in range(1, 8)]
+
+        selected, info = select_batch(cases, batch_size=3, batch_index=2)
+
+        self.assertEqual([case["id"] for case in selected], ["case-4", "case-5", "case-6"])
+        self.assertEqual(info["batch_index"], 2)
+        self.assertEqual(info["total_batches"], 3)
+        self.assertEqual(info["start_position"], 4)
+        self.assertEqual(info["end_position"], 6)
 
     def test_quality_gate_reports_failed_metric(self) -> None:
         gate = build_quality_gate(

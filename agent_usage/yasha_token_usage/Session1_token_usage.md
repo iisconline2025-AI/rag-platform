@@ -118,3 +118,18 @@ This record can be extended with exact token usage later if Codex exposes token 
 - Verification:
   - `python -m json.tool n8n-workflows/retrieval-pipeline.json`
   - `python -m unittest tests.test_evaluation_dataset`
+
+## 2026-06-21 - Batched evaluation/report update
+
+- Work performed: restored direct n8n evaluator behavior, added deterministic batching, added observability reporting, ran unit tests, ran a five-case public webhook smoke test, and prepared consolidated report artifacts.
+- Token usage note: exact platform token counters are not exposed in the workspace, so this log records activity-level usage rather than numeric token totals.
+
+## 2026-06-21 - Full public Railway batch evaluation
+
+- Work performed: launched and monitored the 30-batch public Railway evaluation, consolidated 148 case results, generated a PDF report, render-checked the PDF, and scanned artifacts for secret patterns.
+- Runtime note: RAGAS was not run in this pass because no judge API key was available in the shell environment.
+
+## 2026-06-22 - RAGAS scoring attempt
+
+- Work performed: ran RAGAS scoring against the completed public Railway evaluation output, investigated null metrics, confirmed the OpenAI judge key returned `insufficient_quota`, generated a PDF attempt report, render-checked the report, and scanned artifacts for secret patterns.
+- Token usage note: exact platform token counters are not exposed in the workspace, so this log records activity-level usage rather than numeric token totals.
