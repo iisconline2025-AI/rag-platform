@@ -4,13 +4,21 @@ from __future__ import annotations
 import csv
 import html
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 
-def utc_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+def local_stamp() -> str:
+    """Local-time stamp for human-facing artifact filenames.
+
+    Uses the machine's local timezone (no trailing 'Z', which would imply UTC).
+    """
+    return datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
+
+
+# Back-compat alias: callers/imports that still say utc_stamp get local time now.
+utc_stamp = local_stamp
 
 
 def _format_score(value: Any) -> str:
@@ -133,7 +141,7 @@ def write_evaluation_bundle(
     prefix: str = "application_suite_eval",
 ) -> dict[str, Path]:
     results_dir.mkdir(parents=True, exist_ok=True)
-    stamp = utc_stamp()
+    stamp = local_stamp()
     paths = {
         "json": results_dir / f"{prefix}_{stamp}.json",
         "csv": results_dir / f"{prefix}_{stamp}.csv",
@@ -213,7 +221,7 @@ def render_preflight_markdown(report: dict[str, Any]) -> str:
 
 def write_preflight_bundle(results_dir: Path, report: dict[str, Any]) -> dict[str, Path]:
     results_dir.mkdir(parents=True, exist_ok=True)
-    stamp = utc_stamp()
+    stamp = local_stamp()
     paths = {
         "json": results_dir / f"evaluation_preflight_{stamp}.json",
         "markdown": results_dir / f"evaluation_preflight_{stamp}.md",

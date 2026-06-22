@@ -713,10 +713,10 @@ def build_report(
 ) -> dict[str, Any]:
     scored_by_id = {row["id"]: row for row in scored_rows or []}
     combined = [scored_by_id.get(row["id"], row) for row in outputs]
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now().astimezone().isoformat(),
         "summary": summary,
         "cases": combined,
     }
