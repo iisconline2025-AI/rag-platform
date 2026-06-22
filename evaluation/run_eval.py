@@ -505,18 +505,32 @@ def run_ragas(outputs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
         import nest_asyncio
         from datasets import Dataset
         from ragas import evaluate
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from ragas.llms import LangchainLLMWrapper
         from ragas.metrics import (
             answer_relevancy,
             context_precision,
             context_recall,
             faithfulness,
         )
+        from langchain_openai import ChatOpenAI, OpenAIEmbeddings
     except ImportError as exc:
         raise RuntimeError(
             "Evaluation dependencies are missing. Install evaluation/requirements.txt."
         ) from exc
 
+    # RAGAS 0.1.10's executor reuses the running event loop; allow nested loops.
     nest_asyncio.apply()
+
+    # Bind the independent judge LLM + embeddings explicitly. The pinned RAGAS 0.1.10
+    # default binding is unreliable on this langchain version ("LLM is not set").
+    judge_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini", temperature=0))
+    judge_emb = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-3-small"))
+    for metric in (faithfulness, answer_relevancy, context_precision, context_recall):
+        metric.llm = judge_llm
+        if hasattr(metric, "embeddings"):
+            metric.embeddings = judge_emb
+
     answerable = [row for row in outputs if row["answerable"]]
     if not answerable:
         raise RuntimeError("No answerable cases are available for RAGAS scoring")
@@ -532,6 +546,8 @@ def run_ragas(outputs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
     result = evaluate(
         dataset,
         metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+        llm=judge_llm,
+        embeddings=judge_emb,
         raise_exceptions=False,
     )
     frame = result.to_pandas()
@@ -729,36 +745,47 @@ async def async_main(args: argparse.Namespace) -> int:
         cases = [case for case in cases if case["application"] in requested]
     if args.max_cases:
         cases = cases[: args.max_cases]
-    try:
-        cases, batch_info = select_batch(
-            cases,
-            batch_size=args.batch_size,
-            batch_index=args.batch_index,
-        )
-    except ValueError as exc:
-        LOGGER.error(str(exc))
-        return 2
-    if args.n8n_url:
-        outputs = await collect_direct_n8n_outputs(
-            cases,
-            n8n_url=args.n8n_url,
-            token=args.n8n_token,
-            tenant_id=args.n8n_tenant_id,
-            timeout=args.timeout,
-            allow_mock=args.allow_mock,
-            max_chunks=args.max_chunks_per_query,
-            retries=args.n8n_retries,
-        )
+    batch_info = None
+    if args.from_outputs:
+        outputs = json.loads(Path(args.from_outputs).read_text())
+        LOGGER.info("Loaded %s collected outputs from %s", len(outputs), args.from_outputs)
     else:
-        outputs = await collect_system_outputs(
-            cases,
-            base_url=args.base_url,
-            token=args.token,
-            email=args.email,
-            password=args.password,
-            timeout=args.timeout,
-            allow_mock=args.allow_mock,
-        )
+        try:
+            cases, batch_info = select_batch(
+                cases,
+                batch_size=args.batch_size,
+                batch_index=args.batch_index,
+            )
+        except ValueError as exc:
+            LOGGER.error(str(exc))
+            return 2
+        if args.n8n_url:
+            outputs = await collect_direct_n8n_outputs(
+                cases,
+                n8n_url=args.n8n_url,
+                token=args.n8n_token,
+                tenant_id=args.n8n_tenant_id,
+                timeout=args.timeout,
+                allow_mock=args.allow_mock,
+                max_chunks=args.max_chunks_per_query,
+                retries=args.n8n_retries,
+            )
+        else:
+            outputs = await collect_system_outputs(
+                cases,
+                base_url=args.base_url,
+                token=args.token,
+                email=args.email,
+                password=args.password,
+                timeout=args.timeout,
+                allow_mock=args.allow_mock,
+            )
+        # Persist raw collected outputs immediately so a scoring failure never wastes
+        # the slow collection run; re-score with --from-outputs.
+        args.results_dir.mkdir(parents=True, exist_ok=True)
+        dump_path = args.results_dir / "collected_outputs_latest.json"
+        dump_path.write_text(json.dumps(outputs, indent=1))
+        LOGGER.info("Persisted %s collected outputs to %s", len(outputs), dump_path)
 
     scored_rows: list[dict[str, Any]] | None = None
     ragas_summary: dict[str, float] | None = None
@@ -820,6 +847,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n8n-tenant-id", default=os.getenv("EVAL_TENANT_ID"))
     parser.add_argument("--n8n-retries", type=int, default=2)
     parser.add_argument("--skip-ragas", action="store_true")
+    parser.add_argument(
+        "--from-outputs",
+        type=Path,
+        default=None,
+        help="Score from a previously persisted collected_outputs JSON (skips collection).",
+    )
     parser.add_argument("--allow-mock", action="store_true")
     parser.add_argument("--strict-dataset", action="store_true")
     parser.add_argument("--suite-dataset", action="store_true")

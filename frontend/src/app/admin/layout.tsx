@@ -10,8 +10,12 @@ import { useAuth } from '../../lib/authContext';
 interface NavItem {
   label: string;
   href: string;
+  /** Prefix used for active-state check when it differs from href (e.g. /chat/new active on /chat/*). */
+  matchPrefix?: string;
   icon: React.ReactElement;
   locked?: boolean;
+  /** Roles that should NOT see this nav item. UX only — backend must enforce RBAC. */
+  hiddenForRoles?: readonly string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -27,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     label: 'Users',
     href: '/admin/users',
+    hiddenForRoles: ['user'],
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24" aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
@@ -53,6 +58,16 @@ const NAV_ITEMS: NavItem[] = [
       </svg>
     ),
   },
+  {
+    label: 'Chat',
+    href: '/chat/new',
+    matchPrefix: '/chat',
+    icon: (
+      <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+      </svg>
+    ),
+  },
 ];
 
 function roleBadgeLabel(role: string): string {
@@ -74,7 +89,13 @@ export default function AdminShellLayout({
   const { user, logout } = useAuth();
 
   const pageTitle =
-    NAV_ITEMS.find((item) => pathname.startsWith(item.href))?.label ?? 'Admin';
+    NAV_ITEMS.find((item) => pathname.startsWith(item.matchPrefix ?? item.href))?.label ?? 'Admin';
+
+  // UX-only role filter — backend must independently enforce RBAC.
+  // Show all items while user is null (hydrating); hide role-restricted items once role is known.
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => !user || !item.hiddenForRoles?.includes(user.role),
+  );
 
   async function handleLogout(): Promise<void> {
     if (loggingOut) return;
@@ -121,8 +142,8 @@ export default function AdminShellLayout({
         {/* Nav items */}
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Admin navigation">
           <ul className="space-y-0.5" role="list">
-            {NAV_ITEMS.map(({ label, href, icon, locked }) => {
-              const active = pathname.startsWith(href);
+            {visibleNavItems.map(({ label, href, matchPrefix, icon, locked }) => {
+              const active = pathname.startsWith(matchPrefix ?? href);
               return (
                 <li key={href}>
                   <Link
