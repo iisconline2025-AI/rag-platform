@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT: str = "5/minute"   # per client IP on POST /auth/login
 
     # ── Database ─────────────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+asyncpg://neondb_owner:npg_pZfyDjkngM74@ep-plain-shadow-aowguhj1.c-2.ap-southeast-1.aws.neon.tech/neondb?ssl=require"
+    DATABASE_URL: str = "postgresql+asyncpg://localhost/rag_platform"
 
     @property
     def SYNC_DATABASE_URL(self) -> str:
@@ -78,11 +78,11 @@ class Settings(BaseSettings):
     SLACK_SIGNING_SECRET: str = ""
 
     # ── Cloudflare R2 (file storage) ─────────────────────────────────
-    R2_ACCOUNT_ID: str = "c248caff93b57e6b28730410a4e34ca3"
+    R2_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
     R2_BUCKET_NAME: str = "rag-platform"
-    R2_PUBLIC_URL: str = "https://pub-a9bb7d7b516244eaacc47d9cab962786.r2.dev"
+    R2_PUBLIC_URL: str = ""
 
     # ── File upload limits ───────────────────────────────────────────
     UPLOAD_DIR: str = "/uploads"
