@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { checkSlugApi, registerTenantApi } from '../../lib/onboardingApi';
@@ -422,6 +423,22 @@ export default function OnboardingPage() {
               <p className="mb-6 text-sm text-slate-500">
                 Your knowledge base is ready. Start querying your documents or upload more.
               </p>
+
+              {/* Channel logos */}
+              <div className="mb-6">
+                <p className="mb-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Also available on</p>
+                <div className="flex items-center justify-center gap-6">
+                  <div className="flex flex-col items-center gap-1">
+                    <Image src="/whatsapp.png" alt="WhatsApp" width={40} height={40} className="rounded-lg" />
+                    <span className="text-xs text-slate-500">WhatsApp</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <Image src="/slack.png" alt="Slack" width={40} height={40} className="rounded-lg" />
+                    <span className="text-xs text-slate-500">Slack</span>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
                 <button
                   onClick={() => router.push('/chat/new')}
