@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 
 export default function LandingPage() {
@@ -6,15 +7,6 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
         <span className="text-sm font-semibold tracking-wide text-indigo-600">RAG Platform</span>
-        <div className="flex items-center gap-4">
-          <Link href="/login" className="text-sm text-slate-600 hover:text-slate-900">Sign in</Link>
-          <Link
-            href="/onboarding"
-            className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            Get started
-          </Link>
-        </div>
       </nav>
 
       {/* Hero */}
@@ -60,7 +52,10 @@ export default function LandingPage() {
             <p className="text-sm text-slate-500">Ask questions in plain English. Every answer is grounded in your documents with source citations.</p>
           </div>
           <div className="text-center">
-            <div className="mb-3 text-3xl">📱</div>
+            <div className="mb-3 flex items-center justify-center gap-3">
+              <Image src="/whatsapp.png" alt="WhatsApp" width={36} height={29} className="rounded" />
+              <Image src="/slack.png" alt="Slack" width={84} height={36} className="rounded object-contain" />
+            </div>
             <h3 className="mb-1 font-semibold text-slate-900">WhatsApp &amp; Slack</h3>
             <p className="text-sm text-slate-500">Connect your existing channels. Your team queries the knowledge base where they already work.</p>
           </div>
